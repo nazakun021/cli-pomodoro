@@ -459,6 +459,53 @@ public struct SessionConfiguration: Codable, Equatable, Sendable {
         autoStartFocus: false, autoStartBreaks: true)
 }
 
+public struct PresetConfigurationDraft: Sendable {
+    public var focus: String
+    public var shortBreak: String
+    public var longBreak: String
+    public var longBreakEvery: String
+    public var rounds: String
+    public var openEnded: Bool
+    public var autoStartFocus: Bool
+    public var autoStartBreaks: Bool
+
+    public init(
+        focus: String,
+        shortBreak: String,
+        longBreak: String,
+        longBreakEvery: String,
+        rounds: String,
+        openEnded: Bool,
+        autoStartFocus: Bool,
+        autoStartBreaks: Bool
+    ) {
+        self.focus = focus
+        self.shortBreak = shortBreak
+        self.longBreak = longBreak
+        self.longBreakEvery = longBreakEvery
+        self.rounds = rounds
+        self.openEnded = openEnded
+        self.autoStartFocus = autoStartFocus
+        self.autoStartBreaks = autoStartBreaks
+    }
+
+    public func configuration() throws -> SessionConfiguration {
+        guard let cadence = Int(longBreakEvery), cadence >= 1 else {
+            throw SessionConfigurationError.invalidLongBreakCadence
+        }
+        let targetRounds = openEnded ? nil : Int(rounds)
+        return try SessionConfiguration(
+            focusSeconds: try DurationParser.parse(focus),
+            shortBreakSeconds: try DurationParser.parse(shortBreak),
+            longBreakSeconds: try DurationParser.parse(longBreak),
+            longBreakEvery: cadence,
+            openEnded: openEnded,
+            targetRounds: targetRounds,
+            autoStartFocus: autoStartFocus,
+            autoStartBreaks: autoStartBreaks)
+    }
+}
+
 public struct AgentSnapshot: Codable, Equatable, Sendable {
     public let agentRunning: Bool
     public let agentInstanceID: UUID?
