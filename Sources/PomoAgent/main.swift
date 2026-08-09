@@ -66,10 +66,17 @@ private final class IdleStatusItem: NSObject {
             menu.addItem(withTitle: "\(phase) - \(state)", action: nil, keyEquivalent: "")
             menu.addItem(withTitle: rounds, action: nil, keyEquivalent: "")
             menu.addItem(.separator())
-            let pause = menu.addItem(withTitle: "Pause", action: nil, keyEquivalent: "")
-            pause.isEnabled = false
-            let skip = menu.addItem(withTitle: "Skip", action: nil, keyEquivalent: "")
-            skip.isEnabled = false
+            if snapshot.phaseType == .focus, snapshot.sessionState == .running {
+                menu.addItem(withTitle: "Pause", action: #selector(pauseSession), keyEquivalent: "")
+                menu.items.last?.target = self
+            } else if snapshot.phaseType == .focus, snapshot.sessionState == .paused {
+                menu.addItem(withTitle: "Resume", action: #selector(resumeSession), keyEquivalent: "")
+                menu.items.last?.target = self
+            }
+            if snapshot.phaseType == .focus {
+                menu.addItem(withTitle: "Skip", action: #selector(skipPhase), keyEquivalent: "")
+                menu.items.last?.target = self
+            }
             menu.addItem(
                 withTitle: "Stop Session", action: #selector(confirmStop), keyEquivalent: "")
             menu.items.last?.target = self
@@ -109,6 +116,27 @@ private final class IdleStatusItem: NSObject {
         }
     }
 
+    @objc private func pauseSession() {
+        Task { [agent] in
+            _ = try? await agent.pauseSession()
+            refresh()
+        }
+    }
+
+    @objc private func resumeSession() {
+        Task { [agent] in
+            _ = try? await agent.resumeSession()
+            refresh()
+        }
+    }
+
+    @objc private func skipPhase() {
+        Task { [agent] in
+            _ = try? await agent.skipPhase()
+            refresh()
+        }
+    }
+
     @objc private func quit() {
         refreshTimer?.invalidate()
         server.stop()
@@ -117,7 +145,8 @@ private final class IdleStatusItem: NSObject {
 
     private func formatRemaining(_ seconds: Int) -> String {
         if seconds >= 3_600 {
-            return String(format: "%d:%02d:%02d", seconds / 3_600, (seconds / 60) % 60, seconds % 60)
+            return String(
+                format: "%d:%02d:%02d", seconds / 3_600, (seconds / 60) % 60, seconds % 60)
         }
         return String(format: "%02d:%02d", seconds / 60, seconds % 60)
     }

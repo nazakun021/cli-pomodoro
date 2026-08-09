@@ -9,11 +9,12 @@ struct PomoCLI {
         let replace = arguments.contains("--replace")
         let command = arguments.first(where: { !$0.hasPrefix("-") })
 
-        guard command == "status" || command == "start" || command == "stop",
+        guard command == "status" || command == "start" || command == "stop"
+                || command == "pause" || command == "resume" || command == "skip",
             !replace || command == "start"
         else {
             FileHandle.standardError.write(
-                Data("Usage: pomo <status|start|stop> [--json] [--replace]\n".utf8))
+                Data("Usage: pomo <status|start|stop|pause|resume|skip> [--json] [--replace]\n".utf8))
             Foundation.exit(2)
         }
 
@@ -57,6 +58,27 @@ struct PomoCLI {
                 ?? .failure(
                     PublicError(
                         code: "invalid_state", message: "No active Session to stop.", exitCode: 3))
+        case "pause":
+            return (try? await client.pause())
+                ?? .failure(
+                    PublicError(
+                        code: "agent_unavailable", message: "Pomo Agent is unavailable.",
+                        exitCode: 4),
+                    command: "pause")
+        case "resume":
+            return (try? await client.resume())
+                ?? .failure(
+                    PublicError(
+                        code: "agent_unavailable", message: "Pomo Agent is unavailable.",
+                        exitCode: 4),
+                    command: "resume")
+        case "skip":
+            return (try? await client.skip())
+                ?? .failure(
+                    PublicError(
+                        code: "agent_unavailable", message: "Pomo Agent is unavailable.",
+                        exitCode: 4),
+                    command: "skip")
         default:
             return (try? await client.status()) ?? .agentNotRunning()
         }

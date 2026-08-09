@@ -15,3 +15,9 @@
 - [ ] CLI and menu controls serialize against current revision so concurrent actions produce one deterministic valid Transition and matching snapshots.
 - [ ] Generated state-machine and command/event tests cover valid and invalid sequences for all Phase states, automatic-transition choices, skips, finite endings, and open-ended continuation.
 - [ ] Manual CLI/menu walkthroughs verify Phase symbols, primary-control labels, next-Phase text, and Round progress through a shortened complete Session.
+
+## Validation evidence
+
+- Agent-owned `skip` IPC mutation now accepts the current Focus Phase while Running or Paused and deterministically creates a new running Short Break occurrence under the same Session. It leaves completed rounds at zero; persistence and focus accounting are intentionally not performed.
+- `swift test --filter IPCEnvelopeTests` passed: socket-level command/snapshot coverage verifies the new Short Break phase identity, configured break duration, zero completed rounds, and a later Status matching the Skip result.
+- `swift test` passed: 32 tests, 0 failures. `swift build` passed without diagnostics.

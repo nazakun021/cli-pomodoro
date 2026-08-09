@@ -41,6 +41,7 @@
 - Active-menu validation: phase/state, configured round progress, confirmed Stop, next phase, snapshot-derived accessibility labels, and `MM:SS`/`H:MM:SS` status formatting are derived from the shared Agent snapshot. Pause and Skip remain unavailable because the current Agent command/state-machine slice does not implement them.
 - `swift test` passed: 23 tests, 0 failures.
 - `swift build` passed without diagnostics.
+- Active-menu evidence: Pause, Resume, and Skip now invoke Agent-owned mutations from the same snapshot-driven session menu; their Focus-phase transitions are covered under tickets 03 and 04.
 
 ## Remaining gaps
 

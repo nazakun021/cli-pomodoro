@@ -139,6 +139,51 @@ final class IPCEnvelopeTests: XCTestCase {
         XCTAssertEqual(duplicate.result?.revision, first.result?.revision)
         XCTAssertEqual(duplicate.result?.agentState, .idle)
     }
+
+    func testPauseFreezesFocusSnapshotAndResumeContinuesIt() async throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path
+        let server = try LocalAgentServer(path: path, agent: PomoAgentCore(productVersion: "0.1.0"))
+        defer { server.stop() }
+        let client = LocalAgentClient(path: path)
+        let started = try await client.startClassicResponse(requestID: UUID())
+
+        let paused = try await client.pauseResponse(requestID: UUID())
+        let observedWhilePaused = try await client.statusResponse(requestID: UUID())
+        let resumed = try await client.resumeResponse(requestID: UUID())
+
+        XCTAssertEqual(paused.result?.sessionID, started.result?.sessionID)
+        XCTAssertEqual(paused.result?.phaseID, started.result?.phaseID)
+        XCTAssertEqual(paused.result?.sessionState, .paused)
+        XCTAssertGreaterThan(paused.result?.remainingSeconds ?? 0, 0)
+        XCTAssertNil(paused.result?.phaseStartedAt)
+        XCTAssertNil(paused.result?.expectedTransitionAt)
+        XCTAssertEqual(observedWhilePaused.result?.remainingSeconds, paused.result?.remainingSeconds)
+        XCTAssertEqual(resumed.result?.sessionState, .running)
+        XCTAssertEqual(resumed.result?.remainingSeconds, paused.result?.remainingSeconds)
+        XCTAssertNotNil(resumed.result?.phaseStartedAt)
+        XCTAssertNotNil(resumed.result?.expectedTransitionAt)
+    }
+
+    func testSkipFocusTransitionsToShortBreakWithoutCompletingRound() async throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path
+        let server = try LocalAgentServer(path: path, agent: PomoAgentCore(productVersion: "0.1.0"))
+        defer { server.stop() }
+        let client = LocalAgentClient(path: path)
+        let started = try await client.startClassicResponse(requestID: UUID())
+
+        let skipped = try await client.skipResponse(requestID: UUID())
+        let observed = try await client.statusResponse(requestID: UUID())
+
+        XCTAssertEqual(skipped.result?.sessionID, started.result?.sessionID)
+        XCTAssertNotEqual(skipped.result?.phaseID, started.result?.phaseID)
+        XCTAssertEqual(skipped.result?.phaseType, .shortBreak)
+        XCTAssertEqual(skipped.result?.sessionState, .running)
+        XCTAssertEqual(skipped.result?.remainingSeconds, SessionConfiguration.classic.shortBreakSeconds)
+        XCTAssertEqual(skipped.result?.completedRounds, 0)
+        XCTAssertEqual(observed.result, skipped.result)
+    }
 }
 
 private func utcTimestamp(_ date: Date) -> String {

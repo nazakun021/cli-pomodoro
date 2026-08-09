@@ -649,6 +649,27 @@ public final class LocalAgentServer: @unchecked Sendable {
                         issuedAt: request.issuedAt,
                         agentInstanceID: request.agentInstanceID
                     )
+                case "pause":
+                    guard request.command == IPCCommand(name: "pause") else { return }
+                    snapshot = try await agent.pauseSession(
+                        requestID: request.requestID,
+                        issuedAt: request.issuedAt,
+                        agentInstanceID: request.agentInstanceID
+                    )
+                case "resume":
+                    guard request.command == IPCCommand(name: "resume") else { return }
+                    snapshot = try await agent.resumeSession(
+                        requestID: request.requestID,
+                        issuedAt: request.issuedAt,
+                        agentInstanceID: request.agentInstanceID
+                    )
+                case "skip":
+                    guard request.command == IPCCommand(name: "skip") else { return }
+                    snapshot = try await agent.skipPhase(
+                        requestID: request.requestID,
+                        issuedAt: request.issuedAt,
+                        agentInstanceID: request.agentInstanceID
+                    )
                 default:
                     return
                 }
@@ -806,8 +827,9 @@ public struct LocalAgentClient: Sendable {
         let response = try await startClassicResponse(requestID: UUID(), replace: replace)
         guard response.ok, let snapshot = response.result else {
             return .failure(
-                response.error ?? PublicError(
-                    code: "invalid_response", message: "Invalid Agent response.", exitCode: 1),
+                response.error
+                    ?? PublicError(
+                        code: "invalid_response", message: "Invalid Agent response.", exitCode: 1),
                 command: "start"
             )
         }
@@ -818,12 +840,25 @@ public struct LocalAgentClient: Sendable {
         let response = try await stopResponse(requestID: UUID())
         guard response.ok, let snapshot = response.result else {
             return .failure(
-                response.error ?? PublicError(
-                    code: "invalid_response", message: "Invalid Agent response.", exitCode: 1),
+                response.error
+                    ?? PublicError(
+                        code: "invalid_response", message: "Invalid Agent response.", exitCode: 1),
                 command: "stop"
             )
         }
         return PublicResponse.success(command: "stop", snapshot: snapshot)
+    }
+
+    public func pause() async throws -> PublicResponse {
+        try await mutationResponse(command: "pause")
+    }
+
+    public func resume() async throws -> PublicResponse {
+        try await mutationResponse(command: "resume")
+    }
+
+    public func skip() async throws -> PublicResponse {
+        try await mutationResponse(command: "skip")
     }
 
     public func statusResponse(requestID: UUID) async throws -> IPCResponse {
@@ -849,6 +884,49 @@ public struct LocalAgentClient: Sendable {
         try await commandResponse(
             command: "stop", requestID: requestID, issuedAt: issuedAt,
             agentInstanceID: agentInstanceID)
+    }
+
+    public func pauseResponse(
+        requestID: UUID,
+        issuedAt: String? = nil,
+        agentInstanceID: UUID? = nil
+    ) async throws -> IPCResponse {
+        try await commandResponse(
+            command: "pause", requestID: requestID, issuedAt: issuedAt,
+            agentInstanceID: agentInstanceID)
+    }
+
+    public func resumeResponse(
+        requestID: UUID,
+        issuedAt: String? = nil,
+        agentInstanceID: UUID? = nil
+    ) async throws -> IPCResponse {
+        try await commandResponse(
+            command: "resume", requestID: requestID, issuedAt: issuedAt,
+            agentInstanceID: agentInstanceID)
+    }
+
+    public func skipResponse(
+        requestID: UUID,
+        issuedAt: String? = nil,
+        agentInstanceID: UUID? = nil
+    ) async throws -> IPCResponse {
+        try await commandResponse(
+            command: "skip", requestID: requestID, issuedAt: issuedAt,
+            agentInstanceID: agentInstanceID)
+    }
+
+    private func mutationResponse(command: String) async throws -> PublicResponse {
+        let response = try await commandResponse(command: command, requestID: UUID())
+        guard response.ok, let snapshot = response.result else {
+            return .failure(
+                response.error
+                    ?? PublicError(
+                        code: "invalid_response", message: "Invalid Agent response.", exitCode: 1),
+                command: command
+            )
+        }
+        return PublicResponse.success(command: command, snapshot: snapshot)
     }
 
     private func commandResponse(
@@ -1015,18 +1093,18 @@ public actor PomoAgentCore {
 
     public func snapshot() -> AgentSnapshot {
         if let activeSession {
-            let duration = activeSession.configuration.focusSeconds
-            let remaining = max(
-                0, Int(ceil(Double(duration) - Date().timeIntervalSince(activeSession.startedAt))))
+            let duration = activeSession.duration
+            let remaining = activeSession.remaining(at: Date())
             return AgentSnapshot(
                 agentRunning: true, agentInstanceID: agentInstanceID, agentState: .session,
-                revision: revision, sessionID: activeSession.id, sessionState: .running,
-                phaseID: activeSession.phaseID, phaseType: .focus,
+                revision: revision, sessionID: activeSession.id, sessionState: activeSession.state,
+                phaseID: activeSession.phaseID, phaseType: activeSession.phaseType,
                 configuration: activeSession.configuration, completedRounds: 0,
                 configuredDurationSeconds: duration, remainingSeconds: remaining,
-                phaseStartedAt: timestamp(activeSession.startedAt),
-                expectedTransitionAt: timestamp(
-                    activeSession.startedAt.addingTimeInterval(Double(duration)))
+                phaseStartedAt: activeSession.startedAt.map(timestamp),
+                expectedTransitionAt: activeSession.startedAt.map {
+                    timestamp($0.addingTimeInterval(Double(activeSession.remainingSeconds)))
+                }
             )
         }
         return AgentSnapshot(
@@ -1051,10 +1129,97 @@ public actor PomoAgentCore {
     ) throws -> AgentSnapshot {
         if let cached = try cachedMutation(
             requestID: requestID, issuedAt: issuedAt, agentInstanceID: agentInstanceID)
-        { return cached }
+        {
+            return cached
+        }
         guard activeSession == nil || replace else { throw AgentCommandError.sessionAlreadyActive }
         activeSession = ActiveSession(
-            id: UUID(), phaseID: UUID(), configuration: .classic, startedAt: Date())
+            id: UUID(), phaseID: UUID(), configuration: .classic, phaseType: .focus,
+            state: .running, remainingSeconds: SessionConfiguration.classic.focusSeconds,
+            startedAt: Date())
+        revision += 1
+        let result = snapshot()
+        completedMutations[requestID] = CachedMutation(snapshot: result, completedAt: Date())
+        return result
+    }
+
+    public func pauseSession() throws -> AgentSnapshot {
+        try pauseSession(
+            requestID: UUID(), issuedAt: currentUTCTimestamp(), agentInstanceID: agentInstanceID)
+    }
+
+    fileprivate func pauseSession(
+        requestID: UUID,
+        issuedAt: String,
+        agentInstanceID: UUID
+    ) throws -> AgentSnapshot {
+        if let cached = try cachedMutation(
+            requestID: requestID, issuedAt: issuedAt, agentInstanceID: agentInstanceID)
+        {
+            return cached
+        }
+        guard let activeSession else { throw AgentCommandError.noActiveSession }
+        guard activeSession.phaseType == .focus, activeSession.state == .running else {
+            throw AgentCommandError.invalidTransition
+        }
+        let remaining = activeSession.remaining(at: Date())
+        guard remaining > 0 else { throw AgentCommandError.invalidTransition }
+        self.activeSession = activeSession.paused(remainingSeconds: remaining)
+        revision += 1
+        let result = snapshot()
+        completedMutations[requestID] = CachedMutation(snapshot: result, completedAt: Date())
+        return result
+    }
+
+    public func resumeSession() throws -> AgentSnapshot {
+        try resumeSession(
+            requestID: UUID(), issuedAt: currentUTCTimestamp(), agentInstanceID: agentInstanceID)
+    }
+
+    fileprivate func resumeSession(
+        requestID: UUID,
+        issuedAt: String,
+        agentInstanceID: UUID
+    ) throws -> AgentSnapshot {
+        if let cached = try cachedMutation(
+            requestID: requestID, issuedAt: issuedAt, agentInstanceID: agentInstanceID)
+        {
+            return cached
+        }
+        guard let activeSession else { throw AgentCommandError.noActiveSession }
+        guard activeSession.phaseType == .focus, activeSession.state == .paused else {
+            throw AgentCommandError.invalidTransition
+        }
+        self.activeSession = activeSession.running(from: Date())
+        revision += 1
+        let result = snapshot()
+        completedMutations[requestID] = CachedMutation(snapshot: result, completedAt: Date())
+        return result
+    }
+
+    public func skipPhase() throws -> AgentSnapshot {
+        try skipPhase(
+            requestID: UUID(), issuedAt: currentUTCTimestamp(), agentInstanceID: agentInstanceID)
+    }
+
+    fileprivate func skipPhase(
+        requestID: UUID,
+        issuedAt: String,
+        agentInstanceID: UUID
+    ) throws -> AgentSnapshot {
+        if let cached = try cachedMutation(
+            requestID: requestID, issuedAt: issuedAt, agentInstanceID: agentInstanceID)
+        {
+            return cached
+        }
+        guard let activeSession else { throw AgentCommandError.noActiveSession }
+        guard activeSession.phaseType == .focus,
+            activeSession.state == .running || activeSession.state == .paused
+        else { throw AgentCommandError.invalidTransition }
+        self.activeSession = ActiveSession(
+            id: activeSession.id, phaseID: UUID(), configuration: activeSession.configuration,
+            phaseType: .shortBreak, state: .running,
+            remainingSeconds: activeSession.configuration.shortBreakSeconds, startedAt: Date())
         revision += 1
         let result = snapshot()
         completedMutations[requestID] = CachedMutation(snapshot: result, completedAt: Date())
@@ -1073,7 +1238,9 @@ public actor PomoAgentCore {
     ) throws -> AgentSnapshot {
         if let cached = try cachedMutation(
             requestID: requestID, issuedAt: issuedAt, agentInstanceID: agentInstanceID)
-        { return cached }
+        {
+            return cached
+        }
         guard activeSession != nil else { throw AgentCommandError.noActiveSession }
         activeSession = nil
         revision += 1
@@ -1124,18 +1291,26 @@ public enum AgentCommandError: Error, Equatable, Sendable {
     case requestFromFuture
     case wrongAgent
     case invalidRequestTimestamp
+    case invalidTransition
 
     fileprivate func publicError(currentState: AgentState) -> PublicError {
         switch self {
         case .sessionAlreadyActive:
             return PublicError(
                 code: "invalid_state",
-                message: "A Session is already active. Current state: \(currentState.rawValue). Valid next actions: stop.",
+                message:
+                    "A Session is already active. Current state: \(currentState.rawValue). Valid next actions: stop.",
                 exitCode: 3)
         case .noActiveSession:
             return PublicError(
                 code: "invalid_state",
-                message: "No Session is active. Current state: \(currentState.rawValue). Valid next actions: start.",
+                message:
+                    "No Session is active. Current state: \(currentState.rawValue). Valid next actions: start.",
+                exitCode: 3)
+        case .invalidTransition:
+            return PublicError(
+                code: "invalid_state",
+                message: "The current Phase does not accept that action.",
                 exitCode: 3)
         case .requestExpired:
             return PublicError(
@@ -1143,11 +1318,13 @@ public enum AgentCommandError: Error, Equatable, Sendable {
                 exitCode: 3)
         case .requestFromFuture:
             return PublicError(
-                code: "invalid_request", message: "Mutating request is more than thirty seconds in the future.",
+                code: "invalid_request",
+                message: "Mutating request is more than thirty seconds in the future.",
                 exitCode: 3)
         case .wrongAgent:
             return PublicError(
-                code: "invalid_request", message: "Mutating request targets a different Agent instance.",
+                code: "invalid_request",
+                message: "Mutating request targets a different Agent instance.",
                 exitCode: 3)
         case .invalidRequestTimestamp:
             return PublicError(
@@ -1161,7 +1338,35 @@ private struct ActiveSession: Sendable {
     let id: UUID
     let phaseID: UUID
     let configuration: SessionConfiguration
-    let startedAt: Date
+    let phaseType: PhaseType
+    let state: SessionState
+    let remainingSeconds: Int
+    let startedAt: Date?
+
+    var duration: Int {
+        switch phaseType {
+        case .focus: configuration.focusSeconds
+        case .shortBreak: configuration.shortBreakSeconds
+        case .longBreak: configuration.longBreakSeconds
+        }
+    }
+
+    func remaining(at date: Date) -> Int {
+        guard let startedAt else { return remainingSeconds }
+        return max(0, Int(ceil(Double(remainingSeconds) - date.timeIntervalSince(startedAt))))
+    }
+
+    func paused(remainingSeconds: Int) -> ActiveSession {
+        ActiveSession(
+            id: id, phaseID: phaseID, configuration: configuration, phaseType: phaseType,
+            state: .paused, remainingSeconds: remainingSeconds, startedAt: nil)
+    }
+
+    func running(from date: Date) -> ActiveSession {
+        ActiveSession(
+            id: id, phaseID: phaseID, configuration: configuration, phaseType: phaseType,
+            state: .running, remainingSeconds: remainingSeconds, startedAt: date)
+    }
 }
 
 private struct CachedMutation: Sendable {
