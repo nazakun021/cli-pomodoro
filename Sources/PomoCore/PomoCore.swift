@@ -4,7 +4,38 @@ import Foundation
 public enum AgentState: String, Codable, Sendable {
     case notRunning = "not_running"
     case idle
+    case session
     case recovery
+}
+
+public enum SessionState: String, Codable, Sendable {
+    case ready
+    case running
+    case paused
+    case blocked
+}
+
+public enum PhaseType: String, Codable, Sendable {
+    case focus
+    case shortBreak = "short_break"
+    case longBreak = "long_break"
+}
+
+public struct SessionConfiguration: Codable, Equatable, Sendable {
+    public let focusSeconds: Int
+    public let shortBreakSeconds: Int
+    public let longBreakSeconds: Int
+    public let longBreakEvery: Int
+    public let openEnded: Bool
+    public let targetRounds: Int?
+    public let autoStartFocus: Bool
+    public let autoStartBreaks: Bool
+
+    public static let classic = SessionConfiguration(
+        focusSeconds: 1_500, shortBreakSeconds: 300, longBreakSeconds: 900,
+        longBreakEvery: 4, openEnded: false, targetRounds: 4,
+        autoStartFocus: false, autoStartBreaks: true
+    )
 }
 
 public struct AgentSnapshot: Codable, Equatable, Sendable {
@@ -14,6 +45,14 @@ public struct AgentSnapshot: Codable, Equatable, Sendable {
     public let revision: UInt64
     public let session: SessionSnapshot?
     public let recovery: RecoverySnapshot?
+    public let sessionID: UUID?
+    public let sessionState: SessionState?
+    public let phaseID: UUID?
+    public let phaseType: PhaseType?
+    public let configuration: SessionConfiguration?
+    public let completedRounds: Int?
+    public let configuredDurationSeconds: Int?
+    public let remainingSeconds: Int?
 
     public init(
         agentRunning: Bool,
@@ -21,7 +60,15 @@ public struct AgentSnapshot: Codable, Equatable, Sendable {
         agentState: AgentState,
         revision: UInt64,
         session: SessionSnapshot? = nil,
-        recovery: RecoverySnapshot? = nil
+        recovery: RecoverySnapshot? = nil,
+        sessionID: UUID? = nil,
+        sessionState: SessionState? = nil,
+        phaseID: UUID? = nil,
+        phaseType: PhaseType? = nil,
+        configuration: SessionConfiguration? = nil,
+        completedRounds: Int? = nil,
+        configuredDurationSeconds: Int? = nil,
+        remainingSeconds: Int? = nil
     ) {
         self.agentRunning = agentRunning
         self.agentInstanceID = agentInstanceID
@@ -29,6 +76,14 @@ public struct AgentSnapshot: Codable, Equatable, Sendable {
         self.revision = revision
         self.session = session
         self.recovery = recovery
+        self.sessionID = sessionID
+        self.sessionState = sessionState
+        self.phaseID = phaseID
+        self.phaseType = phaseType
+        self.configuration = configuration
+        self.completedRounds = completedRounds
+        self.configuredDurationSeconds = configuredDurationSeconds
+        self.remainingSeconds = remainingSeconds
     }
 
     enum CodingKeys: String, CodingKey {
@@ -61,15 +116,23 @@ public struct AgentSnapshot: Codable, Equatable, Sendable {
         }
         try container.encode(agentState, forKey: .agentState)
         try container.encode(revision, forKey: .revision)
-        try container.encodeNil(forKey: .sessionID)
-        try container.encodeNil(forKey: .sessionState)
-        try container.encodeNil(forKey: .phaseID)
-        try container.encodeNil(forKey: .phaseType)
+        try container.encodeIfPresent(sessionID, forKey: .sessionID)
+        if sessionID == nil { try container.encodeNil(forKey: .sessionID) }
+        try container.encodeIfPresent(sessionState, forKey: .sessionState)
+        if sessionState == nil { try container.encodeNil(forKey: .sessionState) }
+        try container.encodeIfPresent(phaseID, forKey: .phaseID)
+        if phaseID == nil { try container.encodeNil(forKey: .phaseID) }
+        try container.encodeIfPresent(phaseType, forKey: .phaseType)
+        if phaseType == nil { try container.encodeNil(forKey: .phaseType) }
         try container.encodeNil(forKey: .sourcePresetName)
-        try container.encodeNil(forKey: .configuration)
-        try container.encodeNil(forKey: .completedRounds)
-        try container.encodeNil(forKey: .configuredDurationSeconds)
-        try container.encodeNil(forKey: .remainingSeconds)
+        try container.encodeIfPresent(configuration, forKey: .configuration)
+        if configuration == nil { try container.encodeNil(forKey: .configuration) }
+        try container.encodeIfPresent(completedRounds, forKey: .completedRounds)
+        if completedRounds == nil { try container.encodeNil(forKey: .completedRounds) }
+        try container.encodeIfPresent(configuredDurationSeconds, forKey: .configuredDurationSeconds)
+        if configuredDurationSeconds == nil { try container.encodeNil(forKey: .configuredDurationSeconds) }
+        try container.encodeIfPresent(remainingSeconds, forKey: .remainingSeconds)
+        if remainingSeconds == nil { try container.encodeNil(forKey: .remainingSeconds) }
         try container.encodeNil(forKey: .sessionStartedAt)
         try container.encodeNil(forKey: .phaseStartedAt)
         try container.encodeNil(forKey: .expectedTransitionAt)
@@ -82,7 +145,15 @@ public struct AgentSnapshot: Codable, Equatable, Sendable {
             agentRunning: try container.decode(Bool.self, forKey: .agentRunning),
             agentInstanceID: try container.decodeIfPresent(UUID.self, forKey: .agentInstanceID),
             agentState: try container.decode(AgentState.self, forKey: .agentState),
-            revision: try container.decode(UInt64.self, forKey: .revision)
+            revision: try container.decode(UInt64.self, forKey: .revision),
+            sessionID: try container.decodeIfPresent(UUID.self, forKey: .sessionID),
+            sessionState: try container.decodeIfPresent(SessionState.self, forKey: .sessionState),
+            phaseID: try container.decodeIfPresent(UUID.self, forKey: .phaseID),
+            phaseType: try container.decodeIfPresent(PhaseType.self, forKey: .phaseType),
+            configuration: try container.decodeIfPresent(SessionConfiguration.self, forKey: .configuration),
+            completedRounds: try container.decodeIfPresent(Int.self, forKey: .completedRounds),
+            configuredDurationSeconds: try container.decodeIfPresent(Int.self, forKey: .configuredDurationSeconds),
+            remainingSeconds: try container.decodeIfPresent(Int.self, forKey: .remainingSeconds)
         )
     }
 }
@@ -807,6 +878,7 @@ public actor PomoAgentCore {
     private let agentInstanceID: UUID
     private let productVersion: String
     private var revision: UInt64 = 0
+    private var activeSession: ActiveSession?
 
     public init(productVersion: String) {
         self.productVersion = productVersion
@@ -814,12 +886,29 @@ public actor PomoAgentCore {
     }
 
     public func snapshot() -> AgentSnapshot {
-        AgentSnapshot(
+        if let activeSession {
+            return AgentSnapshot(
+                agentRunning: true, agentInstanceID: agentInstanceID, agentState: .session,
+                revision: revision, sessionID: activeSession.id, sessionState: .running,
+                phaseID: activeSession.phaseID, phaseType: .focus,
+                configuration: activeSession.configuration, completedRounds: 0,
+                configuredDurationSeconds: activeSession.configuration.focusSeconds,
+                remainingSeconds: activeSession.configuration.focusSeconds
+            )
+        }
+        return AgentSnapshot(
             agentRunning: true,
             agentInstanceID: agentInstanceID,
             agentState: .idle,
             revision: revision
         )
+    }
+
+    public func startClassic() throws -> AgentSnapshot {
+        guard activeSession == nil else { throw AgentCommandError.sessionAlreadyActive }
+        activeSession = ActiveSession(id: UUID(), phaseID: UUID(), configuration: .classic)
+        revision += 1
+        return snapshot()
     }
 
     fileprivate func handshakeInfo() -> AgentHandshakeInfo {
@@ -831,6 +920,16 @@ public actor PomoAgentCore {
             capabilities: ["status"]
         )
     }
+}
+
+public enum AgentCommandError: Error, Equatable, Sendable {
+    case sessionAlreadyActive
+}
+
+private struct ActiveSession: Sendable {
+    let id: UUID
+    let phaseID: UUID
+    let configuration: SessionConfiguration
 }
 
 private struct AgentHandshakeInfo: Sendable {

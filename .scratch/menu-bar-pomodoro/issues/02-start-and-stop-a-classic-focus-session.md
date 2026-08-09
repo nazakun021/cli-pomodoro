@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — Observe an Idle Agent from CLI and menu
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Direct Start resolves the complete immutable Classic Session Configuration and acknowledges only after the Session is observable from CLI and menu.
 - [ ] Classic starts a 25-minute Focus Phase with the contracted finite four-Round boundary, Break durations, cadence, and automatic-transition choices.
@@ -15,3 +15,9 @@
 - [ ] A second Start is rejected unless explicit non-interactive replacement is requested, and an invalid replacement cannot disturb the current Session.
 - [ ] Duplicate, expired, future-dated, and wrong-Agent mutation requests prove that Start and Stop cannot be applied twice.
 - [ ] Automated command/snapshot, real socket, CLI subprocess, and native menu checks demonstrate one serialized Session across both surfaces.
+
+## Validation evidence
+
+- `swift test --filter ClassicSessionTests` passed: an Agent-owned Classic Start creates a revision-1 Running Focus snapshot with the complete immutable Classic configuration.
+- `swift test` passed: 15 tests, 0 failures.
+- `swift build` passed without diagnostics.
