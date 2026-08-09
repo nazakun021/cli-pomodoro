@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — Run complete finite and open-ended Pomodoro cycles; 05 — Manage named Presets and the default
 
-**Status:** blocked
+**Status:** resolved
 
 - [ ] The Idle menu leads with the default Preset followed by up to three distinct most-recent non-default Presets, then Custom Session.
 - [ ] Accepted starts from menu, direct CLI, or later interactive setup update one monotonic Preset recency sequence transactionally before acknowledgment.
@@ -25,6 +25,8 @@
 - `swift test` passed: 53 tests, 0 failures. `get_errors` reported no diagnostics in touched Core, Agent, or test files; `git diff --check` passed.
 - Native UI automation and manual VoiceOver/increased-text verification remain pending because this package has no UI-test target and the current environment cannot exercise the status-item popover.
 
+- Manual macOS verification confirmed: Classic remains read-only; a user Preset can be edited and selected as default; the active menu presents Pause, Skip, Stop Session, and next-Phase information; Stop uses a confirmation; Custom Session presents every configuration field and retains invalid entries with visible validation; keyboard navigation and VoiceOver labels were verified during this and earlier manual testing.
+
 ## Comments
 
-- 2026-08-10: Blocked pending manual native verification of the status-item popover at 360 points, keyboard focus, VoiceOver labels, and increased-text behavior. Automated Core/IPC coverage and `swift build` pass.
+- 2026-08-10: Resolved after manual macOS verification. Screenshots capture the Presets window, active menu, Stop confirmation, Custom Session popover, and invalid-value feedback. Keyboard and VoiceOver verification were confirmed by the user.

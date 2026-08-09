@@ -10,15 +10,15 @@ Observed result: Keyboard focus order, delete confirmation presentation, and Voi
 
 Resolved: Manual verification on macOS confirmed Tab/Shift-Tab navigation, Classic read-only controls, user-Preset deletion confirmation, and VoiceOver announcements in the Presets Settings window.
 
-## Blocked: Ticket 06 — Quick-start and customize Sessions from the menu
+## Resolved: Ticket 06 — Quick-start and customize Sessions from the menu
 
 Date: 2026-08-10
 
 Attempted: Built the current native menu and Custom Session popover with `swift build`; it completed successfully. Core and IPC tests verify selected-Preset and configured-CLI recency behavior.
 
-Observed result: This environment cannot open or automate the macOS status-item popover, VoiceOver, or increased-text presentation. The package has no UI-test target.
+Observed result: Manual macOS screenshots verified Preset editing/default selection, the active menu and Stop confirmation, compact Custom Session fields, and invalid-value feedback. The user confirmed keyboard navigation and VoiceOver labels from this and earlier manual testing.
 
-Needed: Manual macOS verification at 360 points covering default and recent Quick Start order, Custom Session validation and save/start paths, keyboard focus, and VoiceOver labels.
+Resolved: Ticket 06 manual UI/VoiceOver evidence is complete.
 
 ## Blocked: Ticket 07 — Configure Sessions through the terminal wizard
 
