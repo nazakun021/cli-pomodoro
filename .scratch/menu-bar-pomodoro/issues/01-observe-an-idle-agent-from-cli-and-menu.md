@@ -27,3 +27,4 @@
 - `swift test` and `swift build` passed after Idle schema alignment: the reachable Idle snapshot now emits exactly the required v1 state matrix, including all Session and Phase fields as explicit nulls.
 - `swift test` and `swift build` passed after IPC envelope work: Status now uses a versioned, Agent-bound request and returns a correlated response with the negotiated protocol version and original request ID.
 - `swift test` and `swift build` passed after runtime endpoint hardening: Agent startup creates and verifies an owner-only `pomo` runtime directory before binding the versioned socket.
+- `swift test` and `swift build` passed after UUID validation: public Idle snapshots encode Agent identity as canonical lowercase UUID text.

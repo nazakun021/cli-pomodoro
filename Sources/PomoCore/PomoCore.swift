@@ -53,7 +53,7 @@ public struct AgentSnapshot: Codable, Equatable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(agentRunning, forKey: .agentRunning)
-        try container.encode(agentInstanceID, forKey: .agentInstanceID)
+        try container.encode(agentInstanceID.uuidString.lowercased(), forKey: .agentInstanceID)
         try container.encode(agentState, forKey: .agentState)
         try container.encode(revision, forKey: .revision)
         try container.encodeNil(forKey: .sessionID)

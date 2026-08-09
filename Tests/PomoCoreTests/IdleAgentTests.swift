@@ -17,7 +17,8 @@ final class IdleAgentTests: XCTestCase {
 
     func testPublicIdleStatusUsesOneSchemaVersionedResponse() async throws {
         let agent = PomoAgentCore(productVersion: "0.1.0")
-        let response = PublicResponse.success(snapshot: await agent.snapshot())
+        let agentSnapshot = await agent.snapshot()
+        let response = PublicResponse.success(snapshot: agentSnapshot)
 
         let data = try JSONEncoder().encode(response)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -31,12 +32,17 @@ final class IdleAgentTests: XCTestCase {
             [
                 "agent_running", "agent_instance_id", "agent_state", "state_revision",
                 "session_id", "session_state", "phase_id", "phase_type", "source_preset_name",
-                "configuration", "completed_rounds", "configured_duration_seconds", "remaining_seconds",
+                "configuration", "completed_rounds", "configured_duration_seconds",
+                "remaining_seconds",
                 "session_started_at", "phase_started_at", "expected_transition_at", "recovery",
             ]
         )
         XCTAssertEqual(snapshot["agent_state"] as? String, "idle")
         XCTAssertEqual(snapshot["state_revision"] as? Int, 0)
+        XCTAssertEqual(
+            snapshot["agent_instance_id"] as? String,
+            agentSnapshot.agentInstanceID.uuidString.lowercased()
+        )
         XCTAssertTrue(snapshot["session_id"] is NSNull)
         XCTAssertTrue(snapshot["session_state"] is NSNull)
         XCTAssertTrue(snapshot["phase_id"] is NSNull)
