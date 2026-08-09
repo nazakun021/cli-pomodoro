@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — Run complete finite and open-ended Pomodoro cycles
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Human Follow shows Phase/state, rounded time, progress, Rounds, next Phase, recent Transitions, and explicit separate CLI control hints.
 - [ ] Help and detach are the only dashboard actions; Control-C, q, or Escape detaches while the Session continues.
@@ -14,3 +14,7 @@
 - [ ] A follower queue retains ordered non-coalescible events, terminates a slow follower with stable backpressure guidance, and never blocks Session processing or auto-reconnects.
 - [ ] Every exit restores terminal state and writes exactly one concise final scrollback line without replaying dashboard history.
 - [ ] Event fixtures, real-socket integration, stalled-consumer, rendering-snapshot, and pseudo-terminal tests cover all states, widths, stream modes, detachment, overflow, and disconnect.
+
+## Validation evidence
+
+- Agreed seam: the Agent-owned Unix socket Follow connection and its public NDJSON adapter. Current server behavior closes after one response, so Follow must be implemented as a protocol extension rather than CLI polling.
