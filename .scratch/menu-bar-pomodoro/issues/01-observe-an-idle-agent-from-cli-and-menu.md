@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Launching Pomo presents one menu-bar-only Agent whose Idle status item shows only the app icon and whose menu identifies that no Session exists.
 - [ ] Human and JSON Status report the same reachable Idle snapshot, including Agent identity and revision with no Session, Phase, timing, Configuration, or Recovery data.
@@ -14,3 +14,12 @@
 - [ ] JSON Status emits one schema-valid public response, while human and machine errors use their contracted output streams and stable exit categories.
 - [ ] Contract fixtures accept the not-running and Idle state matrices and reject invalid nullable-field, version, UUID, timestamp, and response-family combinations.
 - [ ] Automated Agent, socket, CLI, and minimal native UI checks demonstrate matching Idle revisions and snapshots across both surfaces.
+
+## Validation evidence
+
+- `swift test --filter IdleAgentTests` passed: actor-owned Idle snapshot, required nullable JSON fields, and successful Agent-not-running Status envelope.
+- `swift test --filter FrameCodecTests` passed: bounded big-endian frame round-trip and oversized-payload rejection.
+- `swift test --filter UnixSocketTests` passed: a live Unix socket returned the reachable Agent's Idle snapshot at revision `0`.
+- `swift build` passed with no diagnostics.
+- `swift run PomoAgent` followed by `swift run pomo status --json` returned `agent_running: true`, the Agent identity, and the Idle snapshot; the temporary Agent was stopped after the smoke test.
+- `swift test` passed: 7 tests, 0 failures, including refusal to replace a live socket endpoint.
