@@ -59,6 +59,35 @@ final class IPCEnvelopeTests: XCTestCase {
         XCTAssertEqual(response.result?.remainingSeconds, 60)
     }
 
+    func testConfiguredCLIStartRecordsItsDefaultPreset() async throws {
+        let databaseURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-cli-recents-\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: databaseURL) }
+        let store = try PresetStore(databaseURL: databaseURL)
+        let preset = try store.create(name: "Writing", configuration: .classic)
+        try store.selectDefault(id: preset.id)
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path
+        let server = try LocalAgentServer(
+            path: path, agent: PomoAgentCore(productVersion: "0.1.0", presetStore: store))
+        defer { server.stop() }
+        let configuration = try SessionConfiguration(
+            focusSeconds: 60,
+            shortBreakSeconds: 15,
+            longBreakSeconds: 30,
+            longBreakEvery: 2,
+            openEnded: true,
+            targetRounds: nil,
+            autoStartFocus: false,
+            autoStartBreaks: true)
+
+        _ = try await LocalAgentClient(path: path).startResponse(
+            requestID: UUID(), configuration: configuration)
+        try store.selectDefault(id: Preset.classicID)
+
+        XCTAssertEqual(try store.recentPresets(), [preset])
+    }
+
     func testStopEndsSessionAndLaterStatusIsIdle() async throws {
         let path = FileManager.default.temporaryDirectory
             .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path

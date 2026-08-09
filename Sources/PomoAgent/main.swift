@@ -40,6 +40,7 @@ private final class IdleStatusItem: NSObject {
     private var refreshTimer: Timer?
     private var sleepObserver: NSObjectProtocol?
     private var settingsWindow: PresetSettingsWindowController?
+    private var customSessionPopover: CustomSessionPopoverController?
 
     init(agent: PomoAgentCore, server: LocalAgentServer, presetStore: PresetStore) {
         self.agent = agent
@@ -113,9 +114,7 @@ private final class IdleStatusItem: NSObject {
             item.button?.image = NSImage(
                 systemSymbolName: "timer", accessibilityDescription: "Pomo Idle")
             menu.addItem(withTitle: "No Session", action: nil, keyEquivalent: "")
-            menu.addItem(
-                withTitle: "Start Classic", action: #selector(startClassic), keyEquivalent: "")
-            menu.items.last?.target = self
+            addQuickStartItems(to: menu)
         }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Presets...", action: #selector(openPresets), keyEquivalent: ",")
@@ -130,6 +129,45 @@ private final class IdleStatusItem: NSObject {
             _ = try? await agent.startClassic()
             refresh()
         }
+    }
+
+    private func addQuickStartItems(to menu: NSMenu) {
+        guard let defaultPreset = try? presetStore.defaultPreset() else {
+            menu.addItem(withTitle: "Start Classic", action: #selector(startClassic), keyEquivalent: "")
+            menu.items.last?.target = self
+            return
+        }
+        addStartPresetItem(defaultPreset, title: "Start \(defaultPreset.name)", to: menu)
+        for preset in (try? presetStore.recentPresets()) ?? [] {
+            addStartPresetItem(preset, title: preset.name, to: menu)
+        }
+        menu.addItem(withTitle: "Custom Session...", action: #selector(openCustomSession), keyEquivalent: "")
+        menu.items.last?.target = self
+    }
+
+    private func addStartPresetItem(_ preset: Preset, title: String, to menu: NSMenu) {
+        let menuItem = menu.addItem(withTitle: title, action: #selector(startPreset(_:)), keyEquivalent: "")
+        menuItem.target = self
+        menuItem.representedObject = preset.id.uuidString
+    }
+
+    @objc private func startPreset(_ sender: NSMenuItem) {
+        guard let idValue = sender.representedObject as? String, let id = UUID(uuidString: idValue)
+        else { return }
+        Task { [agent] in
+            _ = try? await agent.start(presetID: id)
+            refresh()
+        }
+    }
+
+    @objc private func openCustomSession() {
+        if customSessionPopover == nil {
+            customSessionPopover = CustomSessionPopoverController(agent: agent, store: presetStore) {
+                self.refresh()
+            }
+        }
+        guard let button = item.button else { return }
+        customSessionPopover?.show(relativeTo: button)
     }
 
     @objc private func confirmStop() {

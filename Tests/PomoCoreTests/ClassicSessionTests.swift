@@ -92,6 +92,41 @@ final class ClassicSessionTests: XCTestCase {
         XCTAssertEqual(try store.recentPresets(), [preset])
     }
 
+    func testStartingSelectedPresetUsesItsConfigurationAndRecordsRecency() async throws {
+        let databaseURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-agent-selected-preset-\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: databaseURL) }
+        let store = try PresetStore(databaseURL: databaseURL)
+        let configuration = try SessionConfiguration(
+            focusSeconds: 900,
+            shortBreakSeconds: 180,
+            longBreakSeconds: 600,
+            longBreakEvery: 3,
+            openEnded: false,
+            targetRounds: 2,
+            autoStartFocus: false,
+            autoStartBreaks: true)
+        let preset = try store.create(name: "Writing", configuration: configuration)
+        let agent = PomoAgentCore(productVersion: "0.1.0", presetStore: store)
+
+        let overriddenConfiguration = try SessionConfiguration(
+            focusSeconds: 600,
+            shortBreakSeconds: configuration.shortBreakSeconds,
+            longBreakSeconds: configuration.longBreakSeconds,
+            longBreakEvery: configuration.longBreakEvery,
+            openEnded: configuration.openEnded,
+            targetRounds: configuration.targetRounds,
+            autoStartFocus: configuration.autoStartFocus,
+            autoStartBreaks: configuration.autoStartBreaks)
+
+        let snapshot = try await agent.start(
+            configuration: overriddenConfiguration, sourcePresetID: preset.id)
+
+        XCTAssertEqual(snapshot.configuration, overriddenConfiguration)
+        XCTAssertEqual(snapshot.sessionState, .running)
+        XCTAssertEqual(try store.recentPresets(), [preset])
+    }
+
     func testFiniteSessionEndsAfterItsFinalFocus() async throws {
         let clock = TestClock()
         let configuration = try SessionConfiguration(

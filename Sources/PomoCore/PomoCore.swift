@@ -1654,8 +1654,17 @@ public actor PomoAgentCore {
             replace: false)
     }
 
-    public func start(configuration: SessionConfiguration) throws -> AgentSnapshot {
+    public func start(
+        configuration: SessionConfiguration,
+        sourcePresetID: UUID? = nil
+    ) throws -> AgentSnapshot {
         guard activeSession == nil else { throw AgentCommandError.sessionAlreadyActive }
+        if let sourcePresetID {
+            guard let presetStore,
+                try presetStore.presets().contains(where: { $0.id == sourcePresetID })
+            else { throw PresetStoreError.presetNotFound }
+            try presetStore.recordAcceptedStart(for: sourcePresetID)
+        }
         activeSession = ActiveSession(
             id: UUID(), phaseID: UUID(), configuration: configuration, phaseType: .focus,
             state: .running, completedRounds: 0,
@@ -1663,6 +1672,14 @@ public actor PomoAgentCore {
             startedAt: clock.wallNow(), startedMonotonic: clock.monotonicNow())
         revision += 1
         return snapshot()
+    }
+
+    public func start(presetID: UUID) throws -> AgentSnapshot {
+        guard let presetStore else { throw PresetStoreError.presetNotFound }
+        guard let preset = try presetStore.presets().first(where: { $0.id == presetID }) else {
+            throw PresetStoreError.presetNotFound
+        }
+        return try start(configuration: preset.configuration, sourcePresetID: preset.id)
     }
 
     fileprivate func startClassic(
@@ -1680,6 +1697,9 @@ public actor PomoAgentCore {
         guard activeSession == nil || replace else { throw AgentCommandError.sessionAlreadyActive }
         let configuration: SessionConfiguration
         if let requestedConfiguration {
+            if let presetStore {
+                try presetStore.recordAcceptedStart(for: presetStore.defaultPreset().id)
+            }
             configuration = requestedConfiguration
         } else if let presetStore {
             let preset = try presetStore.defaultPreset()
