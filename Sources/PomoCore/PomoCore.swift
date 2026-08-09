@@ -1416,7 +1416,8 @@ public struct LocalAgentClient: Sendable {
     ) async throws -> IPCResponse {
         try await commandResponse(
             command: "start", requestID: requestID, replace: replace, issuedAt: issuedAt,
-            agentInstanceID: agentInstanceID).response
+            agentInstanceID: agentInstanceID
+        ).response
     }
 
     public func startResponse(
@@ -1426,7 +1427,8 @@ public struct LocalAgentClient: Sendable {
     ) async throws -> IPCResponse {
         try await commandResponse(
             command: "start", requestID: requestID, replace: replace,
-            configuration: configuration).response
+            configuration: configuration
+        ).response
     }
 
     public func stopResponse(
@@ -1436,7 +1438,8 @@ public struct LocalAgentClient: Sendable {
     ) async throws -> IPCResponse {
         try await commandResponse(
             command: "stop", requestID: requestID, issuedAt: issuedAt,
-            agentInstanceID: agentInstanceID).response
+            agentInstanceID: agentInstanceID
+        ).response
     }
 
     public func pauseResponse(
@@ -1446,7 +1449,8 @@ public struct LocalAgentClient: Sendable {
     ) async throws -> IPCResponse {
         try await commandResponse(
             command: "pause", requestID: requestID, issuedAt: issuedAt,
-            agentInstanceID: agentInstanceID).response
+            agentInstanceID: agentInstanceID
+        ).response
     }
 
     public func resumeResponse(
@@ -1456,7 +1460,8 @@ public struct LocalAgentClient: Sendable {
     ) async throws -> IPCResponse {
         try await commandResponse(
             command: "resume", requestID: requestID, issuedAt: issuedAt,
-            agentInstanceID: agentInstanceID).response
+            agentInstanceID: agentInstanceID
+        ).response
     }
 
     public func skipResponse(
@@ -1466,7 +1471,8 @@ public struct LocalAgentClient: Sendable {
     ) async throws -> IPCResponse {
         try await commandResponse(
             command: "skip", requestID: requestID, issuedAt: issuedAt,
-            agentInstanceID: agentInstanceID).response
+            agentInstanceID: agentInstanceID
+        ).response
     }
 
     private func mutationResponse(command: String) async throws -> PublicResponse {

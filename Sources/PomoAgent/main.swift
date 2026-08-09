@@ -133,7 +133,8 @@ private final class IdleStatusItem: NSObject {
 
     private func addQuickStartItems(to menu: NSMenu) {
         guard let defaultPreset = try? presetStore.defaultPreset() else {
-            menu.addItem(withTitle: "Start Classic", action: #selector(startClassic), keyEquivalent: "")
+            menu.addItem(
+                withTitle: "Start Classic", action: #selector(startClassic), keyEquivalent: "")
             menu.items.last?.target = self
             return
         }
@@ -141,12 +142,14 @@ private final class IdleStatusItem: NSObject {
         for preset in (try? presetStore.recentPresets()) ?? [] {
             addStartPresetItem(preset, title: preset.name, to: menu)
         }
-        menu.addItem(withTitle: "Custom Session...", action: #selector(openCustomSession), keyEquivalent: "")
+        menu.addItem(
+            withTitle: "Custom Session...", action: #selector(openCustomSession), keyEquivalent: "")
         menu.items.last?.target = self
     }
 
     private func addStartPresetItem(_ preset: Preset, title: String, to menu: NSMenu) {
-        let menuItem = menu.addItem(withTitle: title, action: #selector(startPreset(_:)), keyEquivalent: "")
+        let menuItem = menu.addItem(
+            withTitle: title, action: #selector(startPreset(_:)), keyEquivalent: "")
         menuItem.target = self
         menuItem.representedObject = preset.id.uuidString
     }
@@ -162,7 +165,8 @@ private final class IdleStatusItem: NSObject {
 
     @objc private func openCustomSession() {
         if customSessionPopover == nil {
-            customSessionPopover = CustomSessionPopoverController(agent: agent, store: presetStore) {
+            customSessionPopover = CustomSessionPopoverController(agent: agent, store: presetStore)
+            {
                 self.refresh()
             }
         }
