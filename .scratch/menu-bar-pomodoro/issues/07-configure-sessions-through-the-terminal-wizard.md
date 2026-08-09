@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — Run complete finite and open-ended Pomodoro cycles; 05 — Manage named Presets and the default
 
-**Status:** claimed
+**Status:** blocked
 
 - [ ] Bare Pomo requires TTY input and output, while non-TTY and JSON attempts fail promptly with explicit non-interactive alternatives.
 - [ ] The three-step Preset, Configure, and Review flow offers the default, recent, named, and custom choices and displays every effective Session Configuration value before Start.
@@ -27,3 +27,7 @@
 - Final validation: `swift build` and `swift test` passed with 53 tests, 0 failures; `git diff --check` and touched-file diagnostics passed.
 - Plain Review now observes current Agent state before Start. An active Session presents a separate explicit replacement confirmation; only acceptance sends `replace: true`, and bare interactive arguments cannot force replacement.
 - Validation: `swift build` passed after the replacement gate; `swift test` passed with 53 tests, 0 failures; diagnostics and `git diff --check` passed.
+
+## Comments
+
+- 2026-08-10: Blocked before implementing Preset selection. The Agent IPC protocol currently exposes only snapshots and mutations; it has no Agent-owned read operation or response model for the default, recent, and named Presets required by this ticket. Directly opening the SQLite store from the CLI would violate the one-Agent-writer ownership decision. A protocol extension and response contract are needed.

@@ -19,3 +19,13 @@ Attempted: Built the current native menu and Custom Session popover with `swift 
 Observed result: This environment cannot open or automate the macOS status-item popover, VoiceOver, or increased-text presentation. The package has no UI-test target.
 
 Needed: Manual macOS verification at 360 points covering default and recent Quick Start order, Custom Session validation and save/start paths, keyboard focus, and VoiceOver labels.
+
+## Blocked: Ticket 07 — Configure Sessions through the terminal wizard
+
+Date: 2026-08-10
+
+Attempted: Implemented TTY-gated plain Classic setup with validated overrides, review, and explicit active-Session replacement confirmation. Builds and 53 automated tests pass.
+
+Observed result: The Agent IPC protocol cannot list or resolve the default, recent, and named Presets for the terminal wizard. The response model carries only Agent snapshots. Direct CLI database access would break the Agent-owned storage boundary.
+
+Needed: Approve an Agent-owned Preset discovery IPC command and versioned response shape, then add socket and CLI coverage before resuming ticket 07.
