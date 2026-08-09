@@ -9,12 +9,15 @@ struct PomoCLI {
         let replace = arguments.contains("--replace")
         let command = arguments.first(where: { !$0.hasPrefix("-") })
 
-        guard command == "status" || command == "start" || command == "stop"
+        guard
+            command == "status" || command == "start" || command == "stop"
                 || command == "pause" || command == "resume" || command == "skip",
             !replace || command == "start"
         else {
             FileHandle.standardError.write(
-                Data("Usage: pomo <status|start|stop|pause|resume|skip> [--json] [--replace]\n".utf8))
+                Data(
+                    "Usage: pomo <status|start|stop|pause|resume|skip> [--json] [--replace]\n".utf8)
+            )
             Foundation.exit(2)
         }
 

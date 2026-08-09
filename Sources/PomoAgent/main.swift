@@ -70,7 +70,8 @@ private final class IdleStatusItem: NSObject {
                 menu.addItem(withTitle: "Pause", action: #selector(pauseSession), keyEquivalent: "")
                 menu.items.last?.target = self
             } else if snapshot.phaseType == .focus, snapshot.sessionState == .paused {
-                menu.addItem(withTitle: "Resume", action: #selector(resumeSession), keyEquivalent: "")
+                menu.addItem(
+                    withTitle: "Resume", action: #selector(resumeSession), keyEquivalent: "")
                 menu.items.last?.target = self
             }
             if snapshot.phaseType == .focus {

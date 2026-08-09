@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Start and stop a Classic Focus Session
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Pause is accepted only from Running and freezes the same positive remaining duration in CLI, menu, and status-item observations.
 - [ ] Resume runs a Paused Phase, and the adaptive menu control and CLI invalid-state guidance always expose only valid next actions.

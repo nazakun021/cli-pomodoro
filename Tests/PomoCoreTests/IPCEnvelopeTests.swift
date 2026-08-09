@@ -158,7 +158,8 @@ final class IPCEnvelopeTests: XCTestCase {
         XCTAssertGreaterThan(paused.result?.remainingSeconds ?? 0, 0)
         XCTAssertNil(paused.result?.phaseStartedAt)
         XCTAssertNil(paused.result?.expectedTransitionAt)
-        XCTAssertEqual(observedWhilePaused.result?.remainingSeconds, paused.result?.remainingSeconds)
+        XCTAssertEqual(
+            observedWhilePaused.result?.remainingSeconds, paused.result?.remainingSeconds)
         XCTAssertEqual(resumed.result?.sessionState, .running)
         XCTAssertEqual(resumed.result?.remainingSeconds, paused.result?.remainingSeconds)
         XCTAssertNotNil(resumed.result?.phaseStartedAt)
@@ -180,7 +181,8 @@ final class IPCEnvelopeTests: XCTestCase {
         XCTAssertNotEqual(skipped.result?.phaseID, started.result?.phaseID)
         XCTAssertEqual(skipped.result?.phaseType, .shortBreak)
         XCTAssertEqual(skipped.result?.sessionState, .running)
-        XCTAssertEqual(skipped.result?.remainingSeconds, SessionConfiguration.classic.shortBreakSeconds)
+        XCTAssertEqual(
+            skipped.result?.remainingSeconds, SessionConfiguration.classic.shortBreakSeconds)
         XCTAssertEqual(skipped.result?.completedRounds, 0)
         XCTAssertEqual(observed.result, skipped.result)
     }
