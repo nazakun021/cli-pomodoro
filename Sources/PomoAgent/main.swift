@@ -67,6 +67,7 @@ private final class IdleStatusItem: NSObject {
     private var authorizationRequested = false
     private var refreshGeneration = 0
     private var isQuitting = false
+    private var missedAlert = false
 
     init(
         agent: PomoAgentCore,
@@ -164,6 +165,13 @@ private final class IdleStatusItem: NSObject {
                 systemSymbolName: "timer", accessibilityDescription: "Pomo Idle")
             menu.addItem(withTitle: "No Session", action: nil, keyEquivalent: "")
             addQuickStartItems(to: menu)
+        }
+        if missedAlert {
+            menu.addItem(
+                withTitle: "Dismiss missed completion alert",
+                action: #selector(dismissMissedAlert),
+                keyEquivalent: "")
+            menu.items.last?.target = self
         }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Presets...", action: #selector(openPresets), keyEquivalent: ",")
@@ -276,7 +284,9 @@ private final class IdleStatusItem: NSObject {
         guard !authorizationRequested else { return }
         authorizationRequested = true
         UNUserNotificationCenter.current().requestAuthorization(
-            options: [.alert, .sound]) { _, _ in }
+            options: [.alert, .sound]) { [weak self] _, _ in
+                Task { @MainActor in self?.refresh() }
+            }
     }
 
     private func deliverCompletionCue(from previous: AgentSnapshot?, to current: AgentSnapshot) {
@@ -288,7 +298,13 @@ private final class IdleStatusItem: NSObject {
         if preferences.soundEnabled { NSSound.beep() }
         guard preferences.notificationsEnabled else { return }
         UNUserNotificationCenter.current().getNotificationSettings { settings in
-            guard settings.authorizationStatus == .authorized else { return }
+            guard settings.authorizationStatus == .authorized else {
+                Task { @MainActor [weak self] in
+                    self?.missedAlert = true
+                    self?.refresh()
+                }
+                return
+            }
             let content = UNMutableNotificationContent()
             content.title = "Pomo"
             let body: String
@@ -306,8 +322,19 @@ private final class IdleStatusItem: NSObject {
                 identifier: "pomo-phase-\(phaseID.uuidString)",
                 content: content,
                 trigger: nil)
-            UNUserNotificationCenter.current().add(request)
+            UNUserNotificationCenter.current().add(request) { [weak self] error in
+                guard error != nil else { return }
+                Task { @MainActor in
+                    self?.missedAlert = true
+                    self?.refresh()
+                }
+            }
         }
+    }
+
+    @objc private func dismissMissedAlert() {
+        missedAlert = false
+        refresh()
     }
 
     @objc private func openPresets() {
