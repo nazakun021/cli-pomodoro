@@ -112,13 +112,25 @@ struct PomoCLI {
         print(
             "Rounds: \(configuration.targetRounds ?? 0) | Auto-start Focus: \(configuration.autoStartFocus ? "on" : "off") | Auto-start Breaks: \(configuration.autoStartBreaks ? "on" : "off")"
         )
+        let status = await commandResponse(command: "status", replace: false, configuration: nil)
+        let replace: Bool
+        if status.data?.agentState == .session {
+            print("An active Session will be replaced. Continue? [y/N]", terminator: " ")
+            guard let answer = readLine()?.lowercased(), answer == "y" || answer == "yes" else {
+                print("Setup cancelled.")
+                return
+            }
+            replace = true
+        } else {
+            replace = false
+        }
         print("Start this Session? [y/N]", terminator: " ")
         guard let answer = readLine()?.lowercased(), answer == "y" || answer == "yes" else {
             print("Setup cancelled.")
             return
         }
         let response = await commandResponse(
-            command: "start", replace: false, configuration: configuration)
+            command: "start", replace: replace, configuration: configuration)
         write(response, json: false)
         if !response.ok {
             Foundation.exit(Int32(response.error?.exitCode ?? 1))

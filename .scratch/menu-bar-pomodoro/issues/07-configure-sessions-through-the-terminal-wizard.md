@@ -25,3 +25,5 @@
 - `swift test` passed: 53 tests, 0 failures. `swift build` and touched-file diagnostics passed.
 - Plain setup now accepts duration, cadence, boundary, and auto-start overrides; it resolves a complete Configuration before review, keeps entries as prompt defaults after validation failure, and rejects invalid boolean input locally.
 - Final validation: `swift build` and `swift test` passed with 53 tests, 0 failures; `git diff --check` and touched-file diagnostics passed.
+- Plain Review now observes current Agent state before Start. An active Session presents a separate explicit replacement confirmation; only acceptance sends `replace: true`, and bare interactive arguments cannot force replacement.
+- Validation: `swift build` passed after the replacement gate; `swift test` passed with 53 tests, 0 failures; diagnostics and `git diff --check` passed.
