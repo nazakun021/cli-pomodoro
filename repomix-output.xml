@@ -80,10 +80,21 @@ The content is organized as follows:
       SKILL.md
 .scratch/
   menu-bar-pomodoro/
+    schemas/
+      database-v1.sql
+      protocol-v1.schema.json
+      recovery-archive-v1.schema.json
     cli-contract.md
     data-contract.md
+    database-design.md
+    ipc-protocol.md
+    native-ui-layouts.md
+    release-design.md
+    schema-semantics.md
     spec.md
+    tui-design.md
     ui-contract.md
+    validation-plan.md
 docs/
   adr/
     0001-menu-bar-agent-owns-session-state.md
@@ -107,6 +118,1506 @@ skills-lock.json
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path=".scratch/menu-bar-pomodoro/schemas/database-v1.sql">
+PRAGMA foreign_keys = ON;
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = FULL;
+
+CREATE TABLE presets (
+    id TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL,
+    normalized_name TEXT NOT NULL UNIQUE,
+    is_builtin INTEGER NOT NULL DEFAULT 0 CHECK (is_builtin IN (0, 1)),
+    focus_seconds INTEGER NOT NULL CHECK (focus_seconds BETWEEN 1 AND 86400),
+    short_break_seconds INTEGER NOT NULL CHECK (short_break_seconds BETWEEN 1 AND 86400),
+    long_break_seconds INTEGER NOT NULL CHECK (long_break_seconds BETWEEN 1 AND 86400),
+    long_break_every INTEGER NOT NULL CHECK (long_break_every >= 1),
+    open_ended INTEGER NOT NULL CHECK (open_ended IN (0, 1)),
+    target_rounds INTEGER CHECK (target_rounds >= 1),
+    auto_start_focus INTEGER NOT NULL CHECK (auto_start_focus IN (0, 1)),
+    auto_start_breaks INTEGER NOT NULL CHECK (auto_start_breaks IN (0, 1)),
+    last_started_sequence INTEGER UNIQUE CHECK (last_started_sequence >= 1),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK (
+        (open_ended = 1 AND target_rounds IS NULL) OR
+        (open_ended = 0 AND target_rounds IS NOT NULL)
+    )
+);
+
+CREATE TABLE app_state (
+    singleton_id INTEGER PRIMARY KEY NOT NULL CHECK (singleton_id = 1),
+    default_preset_id TEXT NOT NULL REFERENCES presets(id) ON DELETE RESTRICT,
+    next_recency_sequence INTEGER NOT NULL DEFAULT 1 CHECK (next_recency_sequence >= 1)
+);
+
+CREATE TABLE focus_contributions (
+    id TEXT PRIMARY KEY NOT NULL,
+    source_phase_id TEXT NOT NULL,
+    segment_index INTEGER NOT NULL CHECK (segment_index >= 0),
+    elapsed_milliseconds INTEGER NOT NULL CHECK (elapsed_milliseconds > 0),
+    local_date TEXT NOT NULL CHECK (length(local_date) = 10),
+    timezone_identifier TEXT NOT NULL,
+    utc_offset_seconds INTEGER NOT NULL CHECK (utc_offset_seconds BETWEEN -64800 AND 64800),
+    completed_round INTEGER NOT NULL CHECK (completed_round IN (0, 1)),
+    finalized_at TEXT NOT NULL,
+    UNIQUE (source_phase_id, segment_index)
+);
+
+CREATE INDEX focus_contributions_local_date_idx
+    ON focus_contributions(local_date);
+
+CREATE UNIQUE INDEX focus_contributions_one_completed_round_idx
+    ON focus_contributions(source_phase_id)
+    WHERE completed_round = 1;
+
+CREATE TRIGGER prevent_builtin_preset_update
+BEFORE UPDATE OF
+    name,
+    normalized_name,
+    is_builtin,
+    focus_seconds,
+    short_break_seconds,
+    long_break_seconds,
+    long_break_every,
+    open_ended,
+    target_rounds,
+    auto_start_focus,
+    auto_start_breaks,
+    created_at,
+    updated_at
+ON presets
+WHEN OLD.is_builtin = 1
+BEGIN
+    SELECT RAISE(ABORT, 'built-in preset cannot be updated');
+END;
+
+CREATE TRIGGER prevent_builtin_preset_delete
+BEFORE DELETE ON presets
+WHEN OLD.is_builtin = 1
+BEGIN
+    SELECT RAISE(ABORT, 'built-in preset cannot be deleted');
+END;
+
+INSERT INTO presets (
+    id,
+    name,
+    normalized_name,
+    is_builtin,
+    focus_seconds,
+    short_break_seconds,
+    long_break_seconds,
+    long_break_every,
+    open_ended,
+    target_rounds,
+    auto_start_focus,
+    auto_start_breaks,
+    last_started_sequence,
+    created_at,
+    updated_at
+) VALUES (
+    '00000000-0000-0000-0000-000000000001',
+    'Classic',
+    'classic',
+    1,
+    1500,
+    300,
+    900,
+    4,
+    0,
+    4,
+    0,
+    1,
+    NULL,
+    '1970-01-01T00:00:00.000Z',
+    '1970-01-01T00:00:00.000Z'
+);
+
+INSERT INTO app_state (
+    singleton_id,
+    default_preset_id,
+    next_recency_sequence
+) VALUES (
+    1,
+    '00000000-0000-0000-0000-000000000001',
+    1
+);
+</file>
+
+<file path=".scratch/menu-bar-pomodoro/schemas/protocol-v1.schema.json">
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pomo.local/schemas/protocol-v1.schema.json",
+  "title": "Pomo protocol and public JSON schema v1",
+  "oneOf": [
+    { "$ref": "#/$defs/hello" },
+    { "$ref": "#/$defs/hello_ack" },
+    { "$ref": "#/$defs/hello_reject" },
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/response" },
+    { "$ref": "#/$defs/event" },
+    { "$ref": "#/$defs/public_response" },
+    { "$ref": "#/$defs/public_event" }
+  ],
+  "$defs": {
+    "protocol_version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["major", "minor"],
+      "properties": {
+        "major": { "type": "integer", "minimum": 1 },
+        "minor": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "protocol_range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["major", "minimum_minor", "maximum_minor"],
+      "properties": {
+        "major": { "type": "integer", "minimum": 1 },
+        "minimum_minor": { "type": "integer", "minimum": 0 },
+        "maximum_minor": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "exit_code", "message", "retryable", "details"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "exit_code": { "type": "integer", "minimum": 1, "maximum": 7 },
+        "message": { "type": "string", "minLength": 1 },
+        "retryable": { "type": "boolean" },
+        "details": { "type": ["object", "null"] }
+      }
+    },
+    "session_configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["focus_seconds", "short_break_seconds", "long_break_seconds", "long_break_every", "open_ended", "target_rounds", "auto_start_focus", "auto_start_breaks"],
+      "properties": {
+        "focus_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "short_break_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "long_break_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "long_break_every": { "type": "integer", "minimum": 1 },
+        "open_ended": { "type": "boolean" },
+        "target_rounds": { "type": ["integer", "null"], "minimum": 1 },
+        "auto_start_focus": { "type": "boolean" },
+        "auto_start_breaks": { "type": "boolean" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "open_ended": { "const": true },
+            "target_rounds": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "open_ended": { "const": false },
+            "target_rounds": { "type": "integer", "minimum": 1 }
+          }
+        }
+      ]
+    },
+    "session_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent_running", "agent_instance_id", "agent_state", "state_revision", "session_id", "session_state", "phase_id", "phase_type", "source_preset_name", "configuration", "completed_rounds", "configured_duration_seconds", "remaining_seconds", "session_started_at", "phase_started_at", "expected_transition_at", "recovery"],
+      "properties": {
+        "agent_running": { "type": "boolean" },
+        "agent_instance_id": { "type": ["string", "null"], "format": "uuid" },
+        "agent_state": { "enum": ["not_running", "idle", "session", "recovery"] },
+        "state_revision": { "type": "integer", "minimum": 0 },
+        "session_id": { "type": ["string", "null"], "format": "uuid" },
+        "session_state": { "type": ["string", "null"], "enum": ["ready", "running", "paused", "blocked", null] },
+        "phase_id": { "type": ["string", "null"], "format": "uuid" },
+        "phase_type": { "type": ["string", "null"], "enum": ["focus", "short_break", "long_break", null] },
+        "source_preset_name": { "type": ["string", "null"] },
+        "configuration": { "oneOf": [{ "$ref": "#/$defs/session_configuration" }, { "type": "null" }] },
+        "completed_rounds": { "type": ["integer", "null"], "minimum": 0 },
+        "configured_duration_seconds": { "type": ["integer", "null"], "minimum": 1, "maximum": 86400 },
+        "remaining_seconds": { "type": ["integer", "null"], "minimum": 0, "maximum": 86400 },
+        "session_started_at": { "type": ["string", "null"], "format": "date-time" },
+        "phase_started_at": { "type": ["string", "null"], "format": "date-time" },
+        "expected_transition_at": { "type": ["string", "null"], "format": "date-time" },
+        "recovery": { "oneOf": [{ "$ref": "#/$defs/recovery_descriptor" }, { "type": "null" }] }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "agent_running": { "const": false },
+            "agent_instance_id": { "type": "null" },
+            "agent_state": { "const": "not_running" },
+            "session_id": { "type": "null" },
+            "session_state": { "type": "null" },
+            "phase_id": { "type": "null" },
+            "phase_type": { "type": "null" },
+            "source_preset_name": { "type": "null" },
+            "configuration": { "type": "null" },
+            "completed_rounds": { "type": "null" },
+            "configured_duration_seconds": { "type": "null" },
+            "remaining_seconds": { "type": "null" },
+            "session_started_at": { "type": "null" },
+            "phase_started_at": { "type": "null" },
+            "expected_transition_at": { "type": "null" },
+            "recovery": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "agent_running": { "const": true },
+            "agent_instance_id": { "type": "string", "format": "uuid" },
+            "agent_state": { "const": "idle" },
+            "session_id": { "type": "null" },
+            "session_state": { "type": "null" },
+            "phase_id": { "type": "null" },
+            "phase_type": { "type": "null" },
+            "source_preset_name": { "type": "null" },
+            "configuration": { "type": "null" },
+            "completed_rounds": { "type": "null" },
+            "configured_duration_seconds": { "type": "null" },
+            "remaining_seconds": { "type": "null" },
+            "session_started_at": { "type": "null" },
+            "phase_started_at": { "type": "null" },
+            "expected_transition_at": { "type": "null" },
+            "recovery": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "agent_running": { "const": true },
+            "agent_instance_id": { "type": "string", "format": "uuid" },
+            "agent_state": { "const": "session" },
+            "session_id": { "type": "string", "format": "uuid" },
+            "session_state": { "enum": ["ready", "running", "paused"] },
+            "phase_id": { "type": "string", "format": "uuid" },
+            "phase_type": { "enum": ["focus", "short_break", "long_break"] },
+            "configuration": { "$ref": "#/$defs/session_configuration" },
+            "completed_rounds": { "type": "integer", "minimum": 0 },
+            "configured_duration_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+            "remaining_seconds": { "type": "integer", "minimum": 0, "maximum": 86400 },
+            "session_started_at": { "type": "string", "format": "date-time" },
+            "recovery": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "agent_running": { "const": true },
+            "agent_instance_id": { "type": "string", "format": "uuid" },
+            "agent_state": { "const": "recovery" },
+            "session_state": { "type": ["string", "null"], "enum": ["blocked", null] },
+            "recovery": { "$ref": "#/$defs/recovery_descriptor" }
+          }
+        }
+      ]
+    },
+    "recovery_descriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "message", "can_retry", "can_export", "can_discard_session", "can_reset_data"],
+      "properties": {
+        "reason": { "enum": ["accounting_write_failed", "migration_failed", "newer_schema", "database_corrupt"] },
+        "message": { "type": "string", "minLength": 1 },
+        "can_retry": { "type": "boolean" },
+        "can_export": { "type": "boolean" },
+        "can_discard_session": { "type": "boolean" },
+        "can_reset_data": { "type": "boolean" }
+      }
+    },
+    "doctor_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["healthy", "checks"],
+      "properties": {
+        "healthy": { "type": "boolean" },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "status", "message", "recovery"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "status": { "enum": ["pass", "warning", "failure"] },
+              "message": { "type": "string", "minLength": 1 },
+              "recovery": { "type": ["string", "null"] }
+            }
+          }
+        }
+      }
+    },
+    "action_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message", "path"],
+      "properties": {
+        "message": { "type": "string", "minLength": 1 },
+        "path": { "type": ["string", "null"] }
+      }
+    },
+    "command_result": {
+      "oneOf": [
+        { "$ref": "#/$defs/session_snapshot" },
+        { "$ref": "#/$defs/doctor_result" },
+        { "$ref": "#/$defs/action_result" }
+      ]
+    },
+    "start_arguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["preset_name", "focus_seconds", "short_break_seconds", "long_break_seconds", "long_break_every", "open_ended", "target_rounds", "auto_start_focus", "auto_start_breaks", "replace", "follow"],
+      "properties": {
+        "preset_name": { "type": ["string", "null"] },
+        "focus_seconds": { "type": ["integer", "null"], "minimum": 1, "maximum": 86400 },
+        "short_break_seconds": { "type": ["integer", "null"], "minimum": 1, "maximum": 86400 },
+        "long_break_seconds": { "type": ["integer", "null"], "minimum": 1, "maximum": 86400 },
+        "long_break_every": { "type": ["integer", "null"], "minimum": 1 },
+        "open_ended": { "type": ["boolean", "null"] },
+        "target_rounds": { "type": ["integer", "null"], "minimum": 1 },
+        "auto_start_focus": { "type": ["boolean", "null"] },
+        "auto_start_breaks": { "type": ["boolean", "null"] },
+        "replace": { "type": "boolean" },
+        "follow": { "type": "boolean" }
+      }
+    },
+    "command": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "arguments"],
+          "properties": {
+            "name": { "const": "start" },
+            "arguments": { "$ref": "#/$defs/start_arguments" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "arguments"],
+          "properties": {
+            "name": { "enum": ["recovery_status", "recovery_retry"] },
+            "arguments": { "type": "object", "maxProperties": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "arguments"],
+          "properties": {
+            "name": { "const": "recovery_export" },
+            "arguments": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path"],
+              "properties": { "path": { "type": "string", "minLength": 1 } }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "arguments"],
+          "properties": {
+            "name": { "enum": ["recovery_discard", "recovery_reset"] },
+            "arguments": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["force"],
+              "properties": { "force": { "const": true } }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "arguments"],
+          "properties": {
+            "name": { "enum": ["status", "pause", "resume", "skip", "stop", "follow", "doctor"] },
+            "arguments": { "type": "object", "maxProperties": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "arguments"],
+          "properties": {
+            "name": { "const": "quit" },
+            "arguments": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["force"],
+              "properties": { "force": { "type": "boolean" } }
+            }
+          }
+        }
+      ]
+    },
+    "hello": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_type", "message_id", "client_name", "client_version", "supported_protocol", "capabilities"],
+      "properties": {
+        "message_type": { "const": "hello" },
+        "message_id": { "type": "string", "format": "uuid" },
+        "client_name": { "const": "pomo" },
+        "client_version": { "type": "string", "minLength": 1 },
+        "supported_protocol": { "$ref": "#/$defs/protocol_range" },
+        "capabilities": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    },
+    "hello_ack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_type", "message_id", "reply_to", "agent_version", "agent_instance_id", "negotiated_protocol", "capabilities", "state_revision"],
+      "properties": {
+        "message_type": { "const": "hello_ack" },
+        "message_id": { "type": "string", "format": "uuid" },
+        "reply_to": { "type": "string", "format": "uuid" },
+        "agent_version": { "type": "string", "minLength": 1 },
+        "agent_instance_id": { "type": "string", "format": "uuid" },
+        "negotiated_protocol": { "$ref": "#/$defs/protocol_version" },
+        "capabilities": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "state_revision": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "hello_reject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_type", "message_id", "reply_to", "agent_version", "supported_protocol", "error"],
+      "properties": {
+        "message_type": { "const": "hello_reject" },
+        "message_id": { "type": "string", "format": "uuid" },
+        "reply_to": { "type": "string", "format": "uuid" },
+        "agent_version": { "type": "string", "minLength": 1 },
+        "supported_protocol": { "$ref": "#/$defs/protocol_range" },
+        "error": { "$ref": "#/$defs/error" }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_type", "protocol_version", "request_id", "agent_instance_id", "issued_at", "command"],
+      "properties": {
+        "message_type": { "const": "request" },
+        "protocol_version": { "$ref": "#/$defs/protocol_version" },
+        "request_id": { "type": "string", "format": "uuid" },
+        "agent_instance_id": { "type": "string", "format": "uuid" },
+        "issued_at": { "type": "string", "format": "date-time" },
+        "command": { "$ref": "#/$defs/command" }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_type", "protocol_version", "request_id", "ok", "state_revision", "result", "error"],
+      "properties": {
+        "message_type": { "const": "response" },
+        "protocol_version": { "$ref": "#/$defs/protocol_version" },
+        "request_id": { "type": "string", "format": "uuid" },
+        "ok": { "type": "boolean" },
+        "state_revision": { "type": "integer", "minimum": 0 },
+        "result": { "oneOf": [{ "$ref": "#/$defs/command_result" }, { "type": "null" }] },
+        "error": { "oneOf": [{ "$ref": "#/$defs/error" }, { "type": "null" }] }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "ok": { "const": true },
+            "result": { "$ref": "#/$defs/command_result" },
+            "error": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "ok": { "const": false },
+            "result": { "type": "null" },
+            "error": { "$ref": "#/$defs/error" }
+          }
+        }
+      ]
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_type", "protocol_version", "request_id", "sequence", "event_type", "occurred_at", "state_revision", "snapshot", "error"],
+      "properties": {
+        "message_type": { "const": "event" },
+        "protocol_version": { "$ref": "#/$defs/protocol_version" },
+        "request_id": { "type": "string", "format": "uuid" },
+        "sequence": { "type": "integer", "minimum": 0 },
+        "event_type": { "enum": ["initial_snapshot", "tick", "transition", "session_ended", "agent_quitting", "backpressure", "recovery_entered", "recovery_resolved"] },
+        "occurred_at": { "type": "string", "format": "date-time" },
+        "state_revision": { "type": "integer", "minimum": 0 },
+        "snapshot": { "oneOf": [{ "$ref": "#/$defs/session_snapshot" }, { "type": "null" }] },
+        "error": { "oneOf": [{ "$ref": "#/$defs/error" }, { "type": "null" }] }
+      }
+    },
+    "public_response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "command", "ok", "data", "error"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "command": { "enum": ["start", "status", "pause", "resume", "skip", "stop", "quit", "doctor", "recovery_status", "recovery_retry", "recovery_export", "recovery_discard", "recovery_reset"] },
+        "ok": { "type": "boolean" },
+        "data": { "oneOf": [{ "$ref": "#/$defs/command_result" }, { "type": "null" }] },
+        "error": { "oneOf": [{ "$ref": "#/$defs/error" }, { "type": "null" }] }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "ok": { "const": true },
+            "data": { "$ref": "#/$defs/command_result" },
+            "error": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "ok": { "const": false },
+            "data": { "type": "null" },
+            "error": { "$ref": "#/$defs/error" }
+          }
+        }
+      ]
+    },
+    "public_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "sequence", "event_type", "occurred_at", "state_revision", "snapshot", "error"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "sequence": { "type": "integer", "minimum": 0 },
+        "event_type": { "enum": ["initial_snapshot", "tick", "transition", "session_ended", "agent_quitting", "backpressure", "recovery_entered", "recovery_resolved"] },
+        "occurred_at": { "type": "string", "format": "date-time" },
+        "state_revision": { "type": "integer", "minimum": 0 },
+        "snapshot": { "oneOf": [{ "$ref": "#/$defs/session_snapshot" }, { "type": "null" }] },
+        "error": { "oneOf": [{ "$ref": "#/$defs/error" }, { "type": "null" }] }
+      }
+    }
+  }
+}
+</file>
+
+<file path=".scratch/menu-bar-pomodoro/schemas/recovery-archive-v1.schema.json">
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pomo.local/schemas/recovery-archive-v1.schema.json",
+  "title": "Pomo recovery archive v1 JSON files",
+  "oneOf": [
+    { "$ref": "#/$defs/manifest" },
+    { "$ref": "#/$defs/data" }
+  ],
+  "$defs": {
+    "archive_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "size_bytes", "sha256"],
+      "properties": {
+        "path": { "enum": ["data.json", "pomo.sqlite", "pomo.sqlite-wal", "pomo.sqlite-shm"] },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file_type", "archive_version", "export_kind", "created_at", "app_version", "database_schema_version", "message", "files"],
+      "properties": {
+        "file_type": { "const": "manifest" },
+        "archive_version": { "const": 1 },
+        "export_kind": { "enum": ["known_schema_json", "opaque_database"] },
+        "created_at": { "type": "string", "format": "date-time" },
+        "app_version": { "type": "string", "minLength": 1 },
+        "database_schema_version": { "type": ["string", "null"] },
+        "message": { "type": "string", "minLength": 1 },
+        "files": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/archive_file" } }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "export_kind": { "const": "known_schema_json" },
+            "database_schema_version": { "type": "string" },
+            "files": {
+              "contains": {
+                "type": "object",
+                "required": ["path"],
+                "properties": { "path": { "const": "data.json" } }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "export_kind": { "const": "opaque_database" },
+            "files": {
+              "contains": {
+                "type": "object",
+                "required": ["path"],
+                "properties": { "path": { "const": "pomo.sqlite" } }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "preset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "focus_seconds", "short_break_seconds", "long_break_seconds", "long_break_every", "open_ended", "target_rounds", "auto_start_focus", "auto_start_breaks", "last_started_sequence", "created_at", "updated_at"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string", "minLength": 1 },
+        "focus_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "short_break_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "long_break_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "long_break_every": { "type": "integer", "minimum": 1 },
+        "open_ended": { "type": "boolean" },
+        "target_rounds": { "type": ["integer", "null"], "minimum": 1 },
+        "auto_start_focus": { "type": "boolean" },
+        "auto_start_breaks": { "type": "boolean" },
+        "last_started_sequence": { "type": ["integer", "null"], "minimum": 1 },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "focus_contribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "source_phase_id", "segment_index", "elapsed_milliseconds", "local_date", "timezone_identifier", "utc_offset_seconds", "completed_round", "finalized_at"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "source_phase_id": { "type": "string", "format": "uuid" },
+        "segment_index": { "type": "integer", "minimum": 0 },
+        "elapsed_milliseconds": { "type": "integer", "minimum": 1 },
+        "local_date": { "type": "string", "format": "date" },
+        "timezone_identifier": { "type": "string", "minLength": 1 },
+        "utc_offset_seconds": { "type": "integer", "minimum": -64800, "maximum": 64800 },
+        "completed_round": { "type": "boolean" },
+        "finalized_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file_type", "archive_version", "database_schema_version", "default_preset_id", "next_recency_sequence", "classic_last_started_sequence", "presets", "preferences", "focus_contributions"],
+      "properties": {
+        "file_type": { "const": "data" },
+        "archive_version": { "const": 1 },
+        "database_schema_version": { "const": "v1" },
+        "default_preset_id": { "type": "string", "format": "uuid" },
+        "next_recency_sequence": { "type": "integer", "minimum": 1 },
+        "classic_last_started_sequence": { "type": ["integer", "null"], "minimum": 1 },
+        "presets": { "type": "array", "items": { "$ref": "#/$defs/preset" } },
+        "preferences": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["notifications_enabled", "sound_enabled", "onboarding_completed", "launch_at_login_requested"],
+          "properties": {
+            "notifications_enabled": { "type": "boolean" },
+            "sound_enabled": { "type": "boolean" },
+            "onboarding_completed": { "type": "boolean" },
+            "launch_at_login_requested": { "type": "boolean" }
+          }
+        },
+        "focus_contributions": { "type": "array", "items": { "$ref": "#/$defs/focus_contribution" } }
+      }
+    }
+  }
+}
+</file>
+
+<file path=".scratch/menu-bar-pomodoro/database-design.md">
+# Pomo Database and Recovery Design v1
+
+Status: Ready for approval
+
+This document is normative for first-release durable storage. Physical v1 DDL is in `schemas/database-v1.sql`; archive objects are defined by `schemas/recovery-archive-v1.schema.json` with cross-field rules in `schema-semantics.md`.
+
+## Files and permissions
+
+- Database: `~/Library/Application Support/Pomo/pomo.sqlite`
+- Backups: `~/Library/Application Support/Pomo/Backups/`
+- Parent directories: owner-only `0700`
+- Database and backup files: owner-only `0600`
+
+Enable foreign keys, WAL journal mode, and synchronous FULL on every writable connection. The Agent is the only writer. Read-only recovery/export connections never mutate pragmas or schema.
+
+## Schema v1
+
+### Presets
+
+`presets` stores all configurations, including protected Classic ID `00000000-0000-0000-0000-000000000001`. Durations are integer seconds. `normalized_name` is the locale-independent case-folded uniqueness key produced by the repository.
+
+The repository and database triggers reject Classic edit/delete outside migrations. Reset preserves or reseeds Classic.
+
+### App state
+
+Singleton `app_state` stores default Preset ID and the next monotonic recency sequence. Agent acceptance of a Session start increments the sequence and assigns it to the source Preset in the same transaction before acknowledgment. UI queries the three highest non-null sequences excluding the current default. A crash before acknowledgment may leave recency updated without a surviving volatile Session by design.
+
+Deleting a user Preset is one transaction: if it is default, select Classic; delete the row (which also removes its row-owned recency metadata); commit.
+
+### Focus contributions
+
+`focus_contributions` stores integer milliseconds split by recorded local date. `(source_phase_id, segment_index)` is unique, making accounting retry idempotent independently of IPC cache state. Zero-elapsed interrupted Focus creates no row.
+
+## Transaction boundaries
+
+The following operations are single SQLite transactions:
+
+- create/edit/delete Preset, including default fallback
+- select default Preset
+- update accepted-start recency
+- finalize all date-split rows for one Focus Phase
+- clear Summary Records
+- apply each named migration
+
+For replacement, validate and construct the new in-memory Session first, finalize old Focus rows transactionally when needed, then perform an infallible serialized state swap and acknowledge. A Break replacement writes no contribution.
+
+SQLite commit and the volatile state swap are ordered but not atomically durable together. A crash after commit preserves accounting; restart discards all volatile Sessions under the existing lifecycle rule. No success is reported before the swap.
+
+For completion/skip/stop/quit, compute all split rows before opening the transaction. Mutate Agent Session state only after commit. A required write failure enters Recovery with the pending operation and intended next state retained in memory.
+
+## Recovery behavior
+
+Reasons and capabilities:
+
+| Reason                        | Retry | JSON export | Raw DB export | Discard Session                 | Reset Data |
+| ----------------------------- | ----- | ----------- | ------------- | ------------------------------- | ---------- |
+| accounting write failed       | yes   | yes         | no            | yes                             | yes        |
+| known-schema migration failed | yes   | yes         | no            | no                              | yes        |
+| newer unknown schema          | no    | no          | yes           | no                              | yes        |
+| corrupt/unreadable database   | no    | best effort | yes           | pending Session only if present | yes        |
+
+Accounting Retry uses the same Phase ID/segment keys and applies the pending contribution exactly once. On success the Agent moves to the precomputed next state. Discard Session confirms loss of pending uncommitted Focus, preserves committed data, and returns Idle.
+
+Pending accounting Recovery is in memory only and does not survive Agent/Mac restart. Intentional Agent Quit is unavailable until the pending state is resolved or explicitly discarded/reset.
+
+Reset Data is separate, requires explicit force/GUI confirmation, and presents export-first guidance. Discard Session also presents Export first but does not require it. Reset removes SQLite, WAL/SHM, backups, preferences, and onboarding state, then creates schema v1 and Classic.
+
+## Migrations
+
+- GRDB `DatabaseMigrator` owns ordered, named, forward-only migrations.
+- Create a consistent pre-migration backup with the SQLite/GRDB backup API before the first pending migration.
+- Apply each migration transactionally in order.
+- Test every supported prior schema directly to latest.
+- Retain the latest three backups from successful upgrades.
+- Never automatically delete the backup associated with a failed migration.
+- A newer unknown schema enters read-only Recovery; never downgrade.
+
+## Recovery archives
+
+Export one `.pomo-recovery.zip`.
+
+Known schema contents:
+
+- `manifest.json`
+- `data.json`
+
+Unknown/corrupt schema contents:
+
+- `manifest.json`
+- `pomo.sqlite` plus available WAL/SHM sidecars or a consistent raw copy where possible
+
+Manifest paths are relative, cannot escape the archive root, and include byte size plus lowercase SHA-256. Known-schema `data.json` contains user Presets, default/recency metadata (including separate Classic recency), exportable preferences, and Focus contributions. Classic is identified by its stable ID and need not be duplicated as a user Preset.
+
+First release does not import archives.
+
+## Required validation
+
+- Apply schema v1 to an empty database and verify constraints/triggers.
+- Upgrade a fixture from every released schema to latest.
+- Simulate failure before backup, during each migration, and after migration commit.
+- Verify successful backup rotation and failed-backup retention.
+- Verify duplicate Phase segment insertion cannot double count.
+- Verify default deletion falls back to Classic atomically.
+- Verify cross-midnight split totals and completion marker placement.
+- Verify known JSON and unknown raw recovery archives and all manifest hashes.
+- Verify accounting Recovery Retry/Discard and migration Retry/Reset behavior.
+</file>
+
+<file path=".scratch/menu-bar-pomodoro/ipc-protocol.md">
+# Pomo IPC Protocol v1
+
+Status: Ready for approval
+
+This document is normative for Agent/CLI transport behavior. Message shapes are defined by `schemas/protocol-v1.schema.json`; cross-field invariants are defined by `schema-semantics.md`.
+
+## Runtime endpoint
+
+- Resolve the user-private Darwin temporary directory with `_CS_DARWIN_USER_TEMP_DIR`.
+- Create `<Darwin temp>/pomo` with owner-only mode `0700`.
+- Use `<Darwin temp>/pomo/agent-v1.sock` with mode `0600`.
+- Use `<Darwin temp>/pomo/agent-v1.lock` for single-owner advisory locking.
+- Reject runtime directories, locks, or sockets not owned by the effective user.
+
+The Agent acquires and holds the exclusive lock before binding. Startup first attempts a connection. If connection fails, only a process that acquires the same exclusive lock may remove the same-user stale socket and bind a replacement. A PID file is never sufficient proof.
+
+## Framing
+
+Each frame is:
+
+1. Four-byte unsigned big-endian payload length.
+2. UTF-8 JSON payload of exactly that length.
+
+The maximum payload length is 1,048,576 bytes. Zero-length, oversized, truncated, invalid UTF-8, invalid JSON, and schema-invalid frames terminate the connection. The Agent records a diagnostic without reflecting untrusted payload text into user-facing errors.
+
+## Connection lifecycle
+
+Ordinary commands use one connection:
+
+1. Client sends `hello`.
+2. Agent sends `hello_ack` or `hello_reject`.
+3. Client sends exactly one `request`.
+4. Agent sends exactly one terminal `response` and closes.
+
+Follow commands use the same handshake and request. After the successful response, the Agent sends an initial snapshot event, then Running tick events, transition events, and one terminal event before normal closure.
+
+## Version negotiation
+
+- Protocol identity is major/minor, initially `1.0`.
+- `hello` supplies one major and a supported inclusive minor range.
+- Different majors produce `hello_reject` and no command executes.
+- For the same major, select the highest minor supported by both peers.
+- Capabilities are explicit strings. A feature requiring an unnegotiated capability is rejected before mutation.
+- Minor releases may add optional capabilities and additive fields only.
+- Removing a field, changing meaning, or changing required behavior requires a new major.
+- Product versions are diagnostic metadata and do not determine compatibility by themselves.
+
+## Commands and idempotency
+
+- Every mutating request contains a lowercase UUID request ID, UTC RFC 3339 millisecond `issued_at`, and the negotiated Agent instance ID.
+- The retry window is five minutes from `issued_at` using the same machine wall clock.
+- Reject requests older than five minutes or more than 30 seconds in the future.
+- Cache the terminal outcome of accepted mutating requests for the full retry window.
+- A duplicate returns the cached outcome without mutation.
+- An expired ID is rejected and never applied.
+- Requests bound to another Agent instance are rejected.
+
+Read-only requests also carry request IDs for correlation but do not require outcome caching.
+
+## Follow streams
+
+- Emit a tick only when the rounded displayed remaining second changes while Running.
+- Emit no ticks while Ready or Paused.
+- Each follower has one replaceable tick slot and a FIFO of 64 non-coalescible events.
+- Transitions and terminal events are never intentionally coalesced or dropped.
+- FIFO overflow attempts one `backpressure` terminal event, closes that follower, and never blocks Agent mutation.
+- Built-in `pomo follow` does not reconnect automatically. It exits with `follow_backpressure`; callers run `status` and explicitly follow again.
+
+## JSON conventions
+
+- Property names use `snake_case`.
+- UUIDs use lowercase canonical text.
+- Wall times use UTC RFC 3339 strings with exactly millisecond precision.
+- Shared snapshots, Session Configurations, and errors use the same payload models in IPC and public CLI JSON.
+- IPC and public CLI envelopes remain distinct; public output never exposes frame or socket metadata.
+- State-dependent snapshot fields are required but nullable.
+- Internal monotonic clock values are never serialized.
+
+## Message families
+
+### Handshake
+
+- `hello`: client/product versions, supported protocol range, and capabilities.
+- `hello_ack`: negotiated version/capabilities, Agent product version, Agent instance ID, and current state revision.
+- `hello_reject`: stable protocol error and Agent-supported range where available.
+
+### Request and response
+
+- `request`: request metadata plus one typed command and arguments.
+- `response`: correlation ID, success flag, state revision, nullable result, and nullable stable error.
+
+Exactly one of response `result` and `error` is non-null.
+
+### Events
+
+- `initial_snapshot`
+- `tick`
+- `transition`
+- `session_ended`
+- `agent_quitting`
+- `backpressure`
+- `recovery_entered`
+- `recovery_resolved`
+
+Every event has a stream-local increasing sequence, occurrence time, state revision, nullable snapshot, and nullable error. Tick events may share a state revision because display time changes are not domain mutations.
+
+## Public JSON envelopes
+
+Ordinary `--json` output uses `public_response`. Follow output uses one `public_event` object per NDJSON line. Both contain `schema_version: 1` and shared payload models but omit IPC protocol and socket metadata.
+
+The Agent-not-running status is synthesized by the CLI as a successful public response with `agent_running: false`; it is never an IPC snapshot.
+
+## Required fixtures
+
+Contract tests must retain schema-valid fixtures for:
+
+- successful and rejected handshakes
+- every command request
+- success and each stable error category
+- Idle, Ready, Running, and Paused snapshots
+- finite and open-ended Session Configurations
+- every event family
+- duplicate, expired, wrong-Agent, oversized, malformed, and backpressured cases
+- public ordinary and NDJSON envelopes
+</file>
+
+<file path=".scratch/menu-bar-pomodoro/native-ui-layouts.md">
+# Pomo Native UI Layouts v1
+
+Status: Ready for approval
+
+This document is normative for first-release native information layout. It complements `ui-contract.md`; exact spacing follows macOS controls and accessibility sizing rather than pixel-perfect screenshots.
+
+## Visual language
+
+- Quiet macOS-native utility using system typography, materials, accent color, controls, and SF Symbols.
+- Full light/dark and Increase Contrast support.
+- No decorative cards, gradients, custom font dependency, or color-only state.
+- Standard focus rings, keyboard order, VoiceOver grouping, and Dynamic Type/accessibility text behavior where macOS supports it.
+
+## Status-item popovers
+
+Default width is 360 points. Height follows content up to 560 points, after which the content region scrolls while primary actions remain reachable. Popovers are not user-resizable.
+
+### Welcome
+
+Order:
+
+1. Pomo name and status-item identification.
+2. Classic timing summary.
+3. Start Classic primary action.
+4. Launch at login opt-in, off by default.
+5. Settings link.
+
+No feature-tour carousel.
+
+### Custom Session
+
+Order:
+
+1. Base Preset picker.
+2. Focus/Short/Long duration fields.
+3. Long Break cadence.
+4. finite Rounds/Open-ended segmented choice and conditional count.
+5. auto-start Focus/Break toggles.
+6. validation summary.
+7. Start Once primary action and Save as Preset secondary action.
+
+Use native duration text fields with parsed examples, not separate card panels.
+
+## Settings window
+
+Use a standard SwiftUI Settings scene with General, Presets, and Alerts toolbar tabs. Default content width is approximately 560 points; each tab chooses a stable natural height and remains keyboard navigable.
+
+### General
+
+- Launch at login status/toggle and registration error.
+- App behavior and onboarding support actions.
+- Data section separated at bottom: Clear History and destructive Full Reset.
+
+Full Reset is unavailable outside Idle/eligible Recovery and uses a confirmation sheet naming deleted data.
+
+### Presets
+
+Use a list/detail split layout within the tab:
+
+- Left: Classic then user Presets, default marker, add/duplicate/delete controls.
+- Right: selected Preset form with durations, cadence, boundary, and auto-start values.
+- Bottom-right: Revert/Save where edits are pending.
+
+Classic fields are read-only and Duplicate remains available. Deleting the default user Preset confirms Classic fallback.
+
+### Alerts
+
+- Notification authorization state and Open System Settings action when denied.
+- Notification enabled preference.
+- Sound enabled preference and chime Preview button.
+- Explanation of pending-permission missed-alert indicator.
+
+## Summary window
+
+- Default size: 640 × 440 points.
+- Minimum size: 520 × 360 points.
+- Resizable; table consumes additional space.
+
+Header:
+
+- Previous week button.
+- locale-formatted week range.
+- Next week button, disabled beyond current week.
+- current streak summary.
+
+Body is one accessible seven-row table with Date, Focus Time, and Completed Rounds columns. Footer shows weekly totals. Empty dates remain visible with zero values for predictable navigation.
+
+Clear History is a trailing footer action with confirmation. It does not sit beside week navigation where accidental activation is likely.
+
+## Recovery presentation
+
+Recovery does not force-open a modal. The status item uses a warning symbol layered with the current state and VoiceOver announcement. Opening the menu shows:
+
+1. Recovery heading and concise reason.
+2. Pending-data impact.
+3. Capability-driven actions in this order: Retry, Export, Discard Session, Reset Data.
+4. Diagnostic/details disclosure.
+
+Destructive actions use confirmation sheets. Reset Data is visually separated from Retry/Export and never shares a button label with Discard Session.
+
+## Layout validation
+
+- Verify standard and increased text sizes without truncating controls.
+- Verify keyboard focus order and default/cancel buttons.
+- Verify VoiceOver groups and state announcements.
+- Verify light, dark, Increase Contrast, Reduce Motion, and no-color-only meaning.
+- Verify 360-point popovers and 520 × 360 minimum Summary window in English with longest planned labels.
+</file>
+
+<file path=".scratch/menu-bar-pomodoro/release-design.md">
+# Pomo Build and Release Design v1
+
+Status: Ready for approval
+
+## Identity and versioning
+
+- Bundle identifier: `com.nazakun.pomo`.
+- License: MIT.
+- Product versions follow Semantic Versioning and tags `vMAJOR.MINOR.PATCH`.
+- App and CLI always share one product version/artifact.
+- IPC protocol, database, recovery archive, and public JSON schemas version independently.
+
+## Project layout
+
+- Commit a minimal `Pomo.xcodeproj` for app and XCUITest targets.
+- Shared domain, IPC, persistence, terminal renderer, and CLI modules live in local Swift packages.
+- Swift language mode is 6 with strict concurrency.
+- Development/release baseline is recorded in the repository; initial planning baseline is Xcode 26.4.1 and Swift 6.3.1.
+- Deployment target is macOS 13.
+- Use pinned Swift Argument Parser, GRDB, and swift-format versions with resolved lock data and license/security review.
+
+## Standard commands
+
+A committed Makefile delegates complex behavior to `scripts/`:
+
+- `make resolve` — resolve pinned packages and verify toolchain.
+- `make format` — apply pinned swift-format.
+- `make format-check` — strict formatting check.
+- `make build` — development app and CLI build.
+- `make test-unit` — Swift Testing domain/storage/protocol tests.
+- `make test-integration` — real Agent/socket/database tests.
+- `make test-cli` — subprocess, TTY, JSON/NDJSON, and exit-code tests.
+- `make test-ui` — XCUITest lifecycle/accessibility suite.
+- `make schema-check` — parse SQL/JSON schemas and validate all protocol/archive fixtures.
+- `make validate` — all non-destructive local quality gates.
+- `make package VERSION=x.y.z` — reproducible unsigned/ad-hoc universal archive in `dist/`.
+- `make release-check VERSION=x.y.z` — validate version, universal slices, signatures, archive, checksums, cask, and clean install/upgrade metadata without publishing.
+
+CI treats Swift compiler warnings and strict-concurrency diagnostics as errors. Pinned swift-format is the formatting gate; SwiftLint is not initially required.
+
+## Artifact
+
+GitHub release files:
+
+- `Pomo-vMAJOR.MINOR.PATCH-macos-universal.zip`
+- `SHA256SUMS`
+
+The archive contains one `Pomo.app`. Its bundled CLI and completions are exposed by the cask. Build both `arm64` and `x86_64` slices, combine/verify universal Mach-O files, sign nested executable code before the app, then ad-hoc sign with Hardened Runtime.
+
+Required checks include:
+
+- `lipo -archs` contains `arm64 x86_64` for app/CLI code.
+- `codesign --verify --deep --strict` succeeds.
+- archive SHA-256 matches `SHA256SUMS`.
+- archive expands with expected bundle ID/version and no unexpected files.
+- clean cask and direct-archive installations produce identical version/checksum evidence.
+
+`spctl` rejection is expected while unnotarized and does not count as Gatekeeper validation success. Manual trust-flow validation is mandatory.
+
+## Gatekeeper instructions
+
+Before overriding macOS protection, users are told that Apple has not reviewed the app and publisher identity cannot be verified.
+
+Document this flow only:
+
+1. Download from the project GitHub release or install the project cask.
+2. Verify the published SHA-256 checksum.
+3. Attempt to open Pomo once.
+4. Open System Settings → Privacy & Security.
+5. In Security, choose Open Anyway within the macOS-offered window, authenticate, and confirm Open.
+
+Reference Apple's current “Open a Mac app from an unknown developer” guidance. Do not recommend `xattr`, `--no-quarantine`, global Gatekeeper disablement, or other quarantine bypasses.
+
+## Homebrew tap
+
+- Tap repository: `nazakun021/homebrew-pomo`.
+- Install command: `brew install --cask nazakun021/pomo/pomo`.
+- Cask uses the GitHub archive URL and exact SHA-256.
+- Cask exposes bundled `pomo` and zsh/bash/fish completions.
+- Caveats include checksum/trust instructions and `pomo quit` before upgrade.
+- Ordinary uninstall preserves data.
+- Zap lists the `com.nazakun.pomo` preferences plus Pomo Application Support, caches, logs, saved state, and launch-at-login registration artifacts.
+- Cask scripts never silently terminate an Agent or active Session.
+
+## GitHub Actions release flow
+
+1. Maintainer dispatches release workflow with version and source commit.
+2. CI verifies clean version metadata and that the tag does not exist.
+3. Run all automated gates and both-architecture builds.
+4. Package, sign, verify, checksum, and run `release-check` without publishing.
+5. Upload immutable candidate artifacts to a protected GitHub environment.
+6. Maintainer reviews evidence and grants manual approval.
+7. Workflow creates the version tag and GitHub Release from the approved commit/artifacts.
+8. Workflow opens or pushes the exact checksum/version update to `nazakun021/homebrew-pomo`.
+9. Post-publish smoke checks download from both channels and compare evidence.
+
+Publishing never rebuilds after approval.
+
+## Upgrade and rollback
+
+- User stops the Session and runs `pomo quit` before `brew upgrade`.
+- Cask does not kill Pomo automatically.
+- If an older app sees a newer database, it enters Recovery and offers raw database export rather than downgrade.
+- Release rollback means reinstalling an older artifact only when database compatibility permits; docs never promise automatic schema downgrade.
+</file>
+
+<file path=".scratch/menu-bar-pomodoro/schema-semantics.md">
+# Pomo Schema Semantic Rules v1
+
+Status: Ready for approval
+
+JSON Schema validates message/archive structure. The `make schema-check` semantic validator additionally enforces the cross-field rules below against every fixture. Integration tests own byte framing, sockets, timing, and state-machine command validity.
+
+## General encoding
+
+- UUID text is canonical lowercase `8-4-4-4-12` form.
+- RFC 3339 wall times are UTC and contain exactly millisecond precision plus `Z`.
+- Unknown additive fields are accepted only when the negotiated/public schema version permits them; v1 schema objects otherwise reject additional properties.
+
+## Protocol negotiation
+
+- `minimum_minor <= maximum_minor`.
+- Negotiated minor is the highest member of the inclusive intersection for the shared major.
+- Negotiated capabilities are a subset of both peers' advertised capabilities.
+
+## Start and Configuration
+
+- Effective Session Configuration has exactly one boundary:
+  - `open_ended = true` and `target_rounds = null`, or
+  - `open_ended = false` and integer `target_rounds >= 1`.
+- Start overrides may be null to inherit. Explicit `open_ended = true` requires null target; explicit target implies finite mode.
+- Preset name plus overrides resolve before Agent mutation.
+
+## Snapshot state matrix
+
+### Not running
+
+- `agent_running = false`, `agent_state = not_running`, Agent/Session/Phase IDs and all Session/timing/configuration/Recovery fields are null.
+- This shape is public CLI output only, never an Agent IPC snapshot.
+
+### Idle
+
+- `agent_running = true`, Agent ID present, `agent_state = idle`.
+- Session/Phase/configuration/timing/Recovery fields are null.
+
+### Session
+
+- Agent, Session, and Phase IDs plus Configuration, completed Rounds, duration, remaining time, and Session start are present.
+- Ready: Phase start and expected transition are null; remaining equals configured duration.
+- Running: Phase start and expected transition are present.
+- Paused: expected transition is null; remaining is positive unless a boundary race has already entered Recovery.
+- Recovery is null.
+
+### Recovery
+
+- Agent ID and Recovery descriptor are present; `agent_state = recovery`.
+- Accounting Recovery retains Session/Phase/Configuration fields with `session_state = blocked`.
+- Migration/newer-schema Recovery has no Session/Phase fields.
+- Database-corrupt Recovery may have blocked Session fields only when failure occurred during an active required write.
+- Descriptor capabilities match the table in `database-design.md`.
+
+## Responses
+
+- Success has non-null result/data and null error.
+- Failure has null result/data and non-null error.
+- Public `command` names preserve distinct Recovery operations.
+- Exit code and symbolic error code agree with `cli-contract.md`.
+- Start, Status, Pause, Resume, Skip, Stop, Follow, Recovery Status, Recovery Retry, Recovery Discard, and Recovery Reset successes return a Session snapshot.
+- Doctor success returns a Doctor result.
+- Quit and Recovery Export successes return an Action result; Recovery Export has a non-null path.
+- The semantic validator correlates each IPC response to its request fixture and rejects a result family not permitted for that command.
+
+## Events
+
+- Sequence starts at zero for each stream and increases by one without gaps among emitted non-coalesced events. Replaced ticks do not consume visible sequence numbers.
+- `initial_snapshot`: non-null snapshot, null error.
+- `tick`: Running snapshot, null error, same or newer state revision.
+- `transition`: non-null Session/Idle snapshot, null error.
+- `session_ended`: Idle snapshot, null error.
+- `agent_quitting`: terminal event; snapshot may be Idle or Recovery, error null.
+- `backpressure`: terminal event with null snapshot and `follow_backpressure` error.
+- `recovery_entered`: Recovery snapshot and null error; Follow remains connected.
+- `recovery_resolved`: non-Recovery snapshot and null error.
+
+## Recovery archives
+
+- Manifest file paths are unique by `path`, relative, and restricted to the schema allowlist.
+- `known_schema_json` has non-null understood database schema version and exactly one payload entry: `data.json`.
+- `opaque_database` includes `pomo.sqlite`, excludes `data.json`, and may additionally include listed WAL/SHM sidecars.
+- Every manifest size/hash matches the exact archived bytes.
+- `data.json` uses the same finite/open-ended invariant as Session Configuration.
+- `classic_last_started_sequence` carries Classic recency when present because Classic is not duplicated in the user Presets array.
+- Preset IDs and contribution IDs are unique; default Preset ID exists in exported Presets or equals stable Classic ID.
+- At most one contribution per source Phase has `completed_round = true`.
+- `(source_phase_id, segment_index)` pairs are unique.
+
+## Validator fixtures
+
+For every invariant, retain at least one accepted and one rejected fixture. Fixture filenames identify schema version, family, and expected outcome; tests fail if a fixture is not exercised.
+</file>
+
+<file path=".scratch/menu-bar-pomodoro/tui-design.md">
+# Pomo Terminal UI Design v1
+
+Status: Ready for approval
+
+This document is normative for human terminal interaction. JSON/NDJSON behavior remains governed by `cli-contract.md` and `schemas/protocol-v1.schema.json`.
+
+## Capability policy
+
+- Interactive TUI requires TTY stdin and stdout.
+- Bare non-TTY `pomo` exits with usage examples and never waits for input.
+- `--plain` uses durable line-oriented prompts/output with no alternate screen, cursor addressing, or live redraw.
+- Honor `NO_COLOR` and terminal color capability.
+- Use Unicode when supported and ASCII equivalents otherwise.
+- Never encode state or validation through color alone.
+- No mouse support or system-wide shortcuts.
+
+The alternate-screen minimum is 60 columns by 18 rows. Below that size, preserve wizard/dashboard state and show a centered resize message with current/required dimensions plus `--plain` guidance. Resume after resize.
+
+## Terminal safety
+
+One idempotent cleanup path restores cooked input, cursor visibility, style, and the previous screen for:
+
+- normal completion
+- `q` or Escape detach where applicable
+- Control-C
+- handled termination/hangup signals
+- Agent disconnect
+- rendering/input error
+- setup cancellation
+
+Cleanup handlers perform only signal-safe notification; restoration occurs on the main terminal loop. Tests use a virtual terminal and pseudo-terminal subprocesses to prove restoration. Pomo must never intentionally leave raw or alternate-screen mode active.
+
+## Interactive setup wizard
+
+Three steps share a stable header, step indicator, content region, validation line, and contextual footer.
+
+### Step 1: Preset
+
+- Default Preset first.
+- Up to three recent non-default Presets.
+- Remaining named Presets.
+- Custom configuration.
+
+Show name plus compact Focus/Short/Long durations and finite/open-ended summary. Search is not needed in v1.
+
+### Step 2: Configure
+
+Fields:
+
+- Focus duration
+- Short Break duration
+- Long Break duration
+- Long Break cadence
+- finite Rounds or Open-ended
+- auto-start Focus
+- auto-start Breaks
+
+Changes are one-Session overrides unless Save as Preset is explicitly selected in the menu UI; terminal setup starts once and does not edit the source Preset.
+
+Validate on field commit and before advancing. Keep focus on an invalid field, show a concise text error, and preserve all other entries.
+
+### Step 3: Review
+
+Show source Preset, every effective Session Configuration value, finite/open-ended boundary, and auto-start behavior. If another Session exists, replacement confirmation appears here and cannot be bypassed by bare `pomo`.
+
+Primary action: Start. Secondary actions: Back and Cancel.
+
+### Navigation
+
+- Arrow keys move/select.
+- Tab and Shift-Tab move between fields/actions.
+- Space toggles focused binary controls.
+- Enter selects, commits, advances, or confirms the focused action.
+- Escape goes back; at Step 1 it asks to cancel only if values changed.
+- Control-C cancels immediately after terminal restoration.
+- `?` opens contextual help; Escape closes help.
+
+Visible footer hints update by focused control. Plain mode communicates equivalent numbered choices and explicit defaults.
+
+## Follow dashboard
+
+Follow is an observer, not a hidden command surface.
+
+Normal layout contains:
+
+- Phase/state label and large formatted remaining time
+- responsive elapsed/remaining progress bar with text percentage or fraction
+- completed/target Rounds or Open-ended label
+- next Phase and duration
+- last three transition messages
+- footer: `? help  q detach  Ctrl-C detach`
+
+The dashboard shows equivalent explicit command hints (`pomo pause`, `pomo resume`, `pomo skip`, `pomo stop`) but does not execute them. Help and detach are the only interactive actions.
+
+At narrower supported widths, shorten labels and bar width before hiding the transition list. Phase, time, Round progress, and detach hint always remain.
+
+Ticks redraw only when rounded displayed seconds change. Ready and Paused states do not poll/redraw. Reduce flicker by diffing terminal cells/lines before output.
+
+### Exit behavior
+
+After restoring normal screen, print exactly one concise line:
+
+- Detached: current Phase/time and “Session continues”.
+- Session ended/stopped: terminal reason and completed Rounds.
+- Agent/recovery/error: stable reason and next command (`pomo status`, `pomo recovery status`, or `pomo doctor`).
+
+Do not replay the transition list into scrollback.
+
+Recovery entry is not itself an exit condition. The active Follow stream emits `recovery_entered`, stops ticks, and changes to the observer-only Recovery dashboard. It remains connected until `recovery_resolved`, Session/Agent terminal event, transport failure, or user detach.
+
+## Plain Follow
+
+`pomo follow --plain` prints:
+
+1. Initial Phase/state/time line.
+2. One durable line per transition, Recovery entry, and terminal event.
+3. No one-second tick lines.
+
+Control-C detaches and prints the same concise final line.
+
+## Accessibility and testing
+
+- Plain mode is the recommended terminal screen-reader path.
+- Alternate-screen content has stable textual labels and logical focus order.
+- Help documents `--plain` prominently.
+- Snapshot tests cover widths 60, 80, and 120; Unicode/color and ASCII/no-color modes; every wizard step/state; Running/Ready/Paused/Recovery dashboards; validation; resize; and help.
+- Pseudo-terminal tests cover input keys, Control-C, signals, disconnects, cleanup, non-TTY errors, and final scrollback lines.
+</file>
+
+<file path=".scratch/menu-bar-pomodoro/validation-plan.md">
+# Pomo Validation Plan v1
+
+Status: Ready for approval
+
+All implementation tasks record exact command, environment, result, and evidence path. `make validate` is the local non-destructive umbrella; release-only/manual checks remain separate.
+
+## Static and schema gates
+
+```sh
+make resolve
+make format-check
+make schema-check
+```
+
+`schema-check` must:
+
+- parse and apply `schemas/database-v1.sql` to an empty SQLite database
+- parse both JSON Schema documents and resolve every local `$ref`
+- validate every required IPC/public/archive fixture against its schema
+- run the semantic validator defined by `schema-semantics.md`, including protocol-range ordering and unique archive paths
+- reject schema-invalid and semantically invalid fixtures
+- verify schema/document version constants agree
+
+## Automated tests
+
+```sh
+make test-unit
+make test-integration
+make test-cli
+make test-ui
+```
+
+Unit tests use Swift Testing for state-machine transitions, clocks, duration parsing, Configuration resolution, midnight splitting, streaks, schema mapping, and repositories.
+
+Integration tests use real temporary SQLite databases and Unix sockets for migrations, backups, transactions, retry deduplication, stale endpoints, version negotiation, concurrent commands, follower overflow, Recovery Retry/Discard/Reset, and Agent relaunch.
+
+Recovery integration fixtures explicitly verify that pending accounting is lost with one interruption notice after Agent restart, and that an active Follow stream remains connected through `recovery_entered` and `recovery_resolved` without ticks during Recovery.
+
+Transport framing, 1 MiB limits, incompatible negotiation, invalid-state command rejection, and backpressure behavior belong to integration tests rather than schema parsing alone.
+
+CLI subprocess/pseudo-terminal tests cover all commands, exit codes, output streams, public JSON fixtures, alternate-screen restoration, `--plain`, non-TTY behavior, signals, resize, backpressure, and Agent startup timeout.
+
+XCUITest covers status-item/menu flows, Settings tabs, popovers, summary layout, Recovery actions, notification action routing, launch-at-login errors, keyboard-only navigation, and accessibility labels. Tests must not mutate the maintainer's real Pomo data or login registration.
+
+## Build gates
+
+```sh
+make build
+make validate
+make package VERSION=x.y.z
+make release-check VERSION=x.y.z
+```
+
+Release check verifies:
+
+- macOS 13 deployment target
+- `arm64` and `x86_64` slices
+- shared app/CLI product version and `com.nazakun.pomo` bundle identifier
+- ad-hoc Hardened Runtime signatures and nested-code verification
+- archive contents and SHA-256
+- cask syntax/version/checksum/artifacts/zap paths
+- dependency lock and license inventory
+- no dirty generated files after rebuild
+
+## Performance conditions
+
+Measure on an otherwise idle supported Mac using Release builds:
+
+- Idle Agent: no timer polling and near-zero sustained CPU over 10 minutes.
+- Active Session: investigate sustained CPU above 1% over 10 minutes.
+- Running Agent command latency: p50 and p95 from 100 local requests; p95 must be under 200 ms.
+- Cold Agent Start acknowledgement: 20 runs; every run under 3 seconds.
+- Awake deadline-to-transition handling: 100 fake-clock/integration samples plus 20 real-clock samples; p95 under 250 ms.
+- Follow clients: verify tick coalescing and bounded memory with a stalled follower.
+
+Record hardware, architecture, macOS, Xcode, Swift, build configuration, and raw results.
+
+## Manual platform matrix
+
+Stable release evidence covers:
+
+- Apple Silicon on macOS 13 and current supported macOS.
+- Intel on macOS 13 and current Intel-supported macOS available to the project.
+- clean user profile for first launch, notification prompt, login registration, and data paths.
+- sleep/wake during Focus and Break, including deadline race.
+- notification allowed, denied, pending, disabled, action handling, sound, and missed-alert acknowledgment.
+- VoiceOver, keyboard-only use, Increase Contrast, Reduce Motion, light/dark appearance.
+- Homebrew install/upgrade/uninstall/zap and direct GitHub archive install.
+- Direct archive: checksum, app installation, first launch, bundled CLI execution, and Agent auto-launch after Apple's Open Anyway flow.
+- Project cask: cask/checksum verification, first launch, exposed CLI/completions, and Agent auto-launch after Apple's Open Anyway flow.
+- app/CLI mismatch, newer database, migration failure, corrupt database, Recovery export/retry/discard/reset.
+
+Unavailable hardware/OS combinations are release blockers unless the spec is explicitly revised; they are not silently waived.
+
+## Milestone 1 minimum gate
+
+Before expanding beyond the Agent/IPC/state-machine proof:
+
+```sh
+make format-check
+make schema-check
+make test-unit
+make test-integration
+make test-cli
+make test-ui
+make build
+```
+
+Evidence must demonstrate one Agent owner, direct non-interactive Start/Status/Stop, minimal native menu countdown, protocol mismatch rejection, stale-socket safety, request deduplication, and no divergent CLI/menu state. Interactive wizard/Follow terminal restoration is a Milestone 2 gate.
+</file>
 
 <file path=".agents/skills/grill-with-docs/agents/openai.yaml">
 interface:
@@ -1083,7 +2594,7 @@ In either form, avoid specific file paths or code snippets — they go stale fas
 <file path=".scratch/menu-bar-pomodoro/cli-contract.md">
 # Pomo CLI Contract
 
-Status: Planning
+Status: Ready for approval
 
 This document defines the first-release public command and automation contract. It does not authorize implementation.
 
@@ -1093,6 +2604,8 @@ This document defines the first-release public command and automation contract. 
 - Human-readable output is the default.
 - Global `--json` requests machine-readable output from every command.
 - Bare `pomo --json` is a usage error; interactive setup is available only in human TTY mode.
+- Bare `pomo` requires TTY stdin and stdout. Non-TTY use is a usage error with explicit `pomo start` and JSON examples.
+- Global `--plain` selects line-oriented prompts/output without cursor movement, alternate screen, or live redraw.
 - Human errors go to standard error. JSON mode writes one parseable envelope to standard output even on failure, except that `follow --json` and `start --follow --json` write NDJSON streams.
 - Durations are positive, composable integer units from 1 second through 24 hours, such as `90s`, `25m`, and `1h30m`. Zero, negative, fractional, unitless, malformed, and over-24-hour values are usage errors.
 - Control-C detaches interactive and JSON follow clients without stopping the Agent-owned Session.
@@ -1105,6 +2618,8 @@ This document defines the first-release public command and automation contract. 
 ### `pomo`
 
 Open interactive setup: choose the default, a recent, or another named Preset; review and optionally override values; then start.
+
+Default TTY mode uses the three-step alternate-screen wizard in `tui-design.md`. `--plain` uses equivalent numbered, line-oriented prompts.
 
 ### `pomo start [DURATION] [options]`
 
@@ -1125,7 +2640,9 @@ Options:
 
 Supplying both positional `DURATION` and `--focus` is a usage error. Without `--replace`, non-interactive Start fails if a Session exists. Bare interactive `pomo` does not accept `--replace` and always asks before replacement.
 
-Replacement is one serialized mutation: if the old Session is in Focus, finalize elapsed Focus time without completing a Round; if it is in a Break, create no Summary Record. Preserve all prior summaries, end the old Session, then create the new Session. Failure before new-Session creation must not leave accounting partially applied.
+Replacement is one serialized operation: if the old Session is in Focus, finalize elapsed Focus time without completing a Round; if it is in a Break, create no Summary Record. Preserve all prior summaries, commit eligible accounting, then swap to the prevalidated new in-memory Session and acknowledge success.
+
+SQLite commit and volatile Session swap are not falsely described as one transaction. If the Agent crashes after accounting commits but before acknowledgment, committed Focus remains while restart discards both volatile old/new Sessions. The CLI reports success only after acknowledgment; an unavailable/lost response cannot promise that the new Session exists.
 
 ### `pomo status`
 
@@ -1151,7 +2668,9 @@ Stop the active Session immediately without a CLI confirmation. Finalize partial
 
 ### `pomo follow`
 
-Attach to the active Session. Human mode updates one status line once per second and prints transitions as durable lines. JSON mode emits NDJSON. It is an invalid-state error from Idle.
+Attach to the active Session. Human mode opens the observer-only alternate-screen dashboard in `tui-design.md`. Plain mode prints the initial state, transitions, and terminal event without tick redraws. JSON mode emits NDJSON. It is an invalid-state error from Idle.
+
+The dashboard accepts only help and detach input; it displays explicit `pomo pause|resume|skip|stop` command hints rather than mutating the Session. On exit it restores the terminal and prints one concise detached/ended line.
 
 ### `pomo quit [--force]`
 
@@ -1164,6 +2683,26 @@ Perform read-only checks of installation layout, CLI/Agent versions, protocol co
 Optional capabilities that are intentionally disabled or denied are reported as warnings. Doctor exits successfully when core installation, Agent communication, and durable-data health are good.
 
 Doctor is read-only and never requests permission or repairs state. If diagnosis finds a core filesystem/socket permission failure, it exits 7 with a stable permission error. Optional notification or launch-at-login denial remains an exit-0 warning.
+
+### `pomo recovery status`
+
+Print the Recovery descriptor and available actions. Ordinary `pomo status` also exits 0 with a Recovery snapshot. Normal mutating commands exit 6 and point to recovery actions.
+
+### `pomo recovery retry`
+
+Retry the exact pending accounting transaction or known-schema migration when the Recovery descriptor advertises `can_retry`. The operation is idempotent. On success, accounting completes once and the Session proceeds to its already-determined next state, or migration completes and the Agent returns Idle.
+
+### `pomo recovery export PATH`
+
+Write one `.pomo-recovery.zip`. Known schemas contain a SHA-256 manifest and JSON data payload. Unknown newer schemas contain a hashed raw SQLite copy and explanatory metadata.
+
+### `pomo recovery discard --force`
+
+When `can_discard_session` is true, confirm loss of only the pending uncommitted Focus contribution, end that Session, preserve committed data, and return Idle.
+
+### `pomo recovery reset --force`
+
+When `can_reset_data` is true, remove all Pomo-owned durable data after explicit force/GUI confirmation. This is distinct from Discard Session and presents export-first guidance.
 
 ## Exit codes
 
@@ -1214,15 +2753,15 @@ When no Session exists, a reachable Agent reports Idle without Session fields. W
 <file path=".scratch/menu-bar-pomodoro/data-contract.md">
 # Pomo Durable Data Contract
 
-Status: Planning
+Status: Ready for approval
 
 This document defines first-release durable-data behavior independently of physical SQLite tables. It does not authorize implementation.
 
 ## Ownership
 
-- SQLite transactions own Presets and Summary Records.
+- SQLite transactions own Presets, default-Preset selection, recency metadata, and Summary Records.
 - macOS preferences APIs own lightweight global preferences and onboarding state.
-- Preferences also own recent-Preset ordering and a minimal interruption marker containing prior Agent instance, active-Session presence, and clean-exit metadata.
+- Preferences also own a minimal interruption marker containing prior Agent instance, active-Session presence, and clean-exit metadata.
 - The Agent is the only writer while running.
 - Active Session state remains in memory and is not restored after Agent or Mac restart.
 
@@ -1238,11 +2777,11 @@ A stored user Preset contains:
 - Focus and Break automatic-start choices
 - creation and modification metadata needed for deterministic ordering/migrations
 
-The immutable built-in Classic Preset is represented as a product default rather than a deletable user record. One built-in or user Preset identifier is selected as the default.
+SQLite seeds the immutable built-in Classic Preset as a protected row so default and recency references remain relationally consistent. The repository exposes it as a product default rather than an editable user record.
 
 Deleting the current default user Preset requires confirmation and atomically selects Classic as the replacement default. Deletion also removes the Preset from recency. Classic itself cannot be deleted.
 
-Up to three distinct recent Preset identifiers are retained across Agent restarts. Recency may include built-in Classic when it is not the default. Every successfully acknowledged CLI, menu, or interactive Session creation updates recency; the current default is excluded from duplicate display and deleted user Presets are removed.
+Every Preset row may retain a monotonic last-started sequence. Agent acceptance of CLI, menu, or interactive Session creation updates that sequence transactionally before acknowledgment. Recency may therefore survive an ambiguous pre-acknowledgment crash; it is convenience metadata, not evidence that a volatile Session survived. The UI selects the three most recent rows excluding the current default; Classic is eligible when not default and deleted user rows disappear automatically.
 
 ## Summary Records
 
@@ -1287,7 +2826,7 @@ The interruption marker supports one concise notice after an unclean exit with a
 ## Clearing and reset
 
 - Clear History deletes Summary Records transactionally and leaves Presets, preferences, and active Session untouched.
-- Full reset requires Idle and explicit confirmation, then removes Presets, preferences, Summary Records, and onboarding state.
+- Full Reset requires Idle or a Recovery descriptor with `can_reset_data`, plus explicit confirmation. It is unavailable during a normal active Session and removes Presets, preferences, Summary Records, and onboarding state.
 - Ordinary Homebrew uninstall preserves data; explicit zap removes all documented Pomo-owned data locations.
 
 ## Migrations and recovery
@@ -1297,11 +2836,19 @@ The interruption marker supports one concise notice after an unclean exit with a
 - On failure, preserve the database and backup, disable mutations, and enter recovery mode. Never reset silently.
 - Recovery mode offers diagnostics, versioned JSON export, and explicit reset.
 
-The recovery archive includes schema metadata, user Presets, global preferences, and Summary Records. First release exports archives but does not import or merge them.
+Known-schema recovery archives include schema metadata, user Presets, default/recency metadata, global preferences, and Summary Records with SHA-256 integrity manifest. First release exports archives but does not import or merge them.
+
+An older binary encountering a newer unknown schema cannot claim semantic JSON compatibility. It offers a hashed raw database copy in the recovery archive instead.
+
+Required accounting failure enters Recovery before Phase transition. The pending contribution remains in memory and ordinary timing/mutation stop. Retry executes the same idempotent contribution transaction; success then applies the already-determined next state. Discard Session confirms loss of only pending uncommitted Focus and preserves committed data. Full Reset is a distinct capability-gated action.
+
+Pending accounting Recovery does not survive Agent or Mac restart. The existing interruption marker reports the loss once; committed data remains. Intentional Quit is refused until Retry, Discard Session, or explicit destructive Reset resolves the pending state. Export is presented first and strongly recommended but is not mandatory before Discard.
 </file>
 
 <file path=".scratch/menu-bar-pomodoro/spec.md">
 # Feature: Menu Bar Pomodoro
+
+Status: Ready for approval
 
 ## Outcome
 
@@ -1313,15 +2860,21 @@ Technical macOS users can start and control a Pomodoro session with `pomo` or th
 - The product is a self-contained native macOS experience distributed through Homebrew.
 - A persistent menu-bar agent owns timer state. The CLI is a short-lived controller and optional live observer.
 - The first release supports classic focus, short-break, and long-break phases.
-- Planning is in progress. This document records resolved product decisions; it does not authorize implementation.
+- Planning is complete. This document records resolved product decisions; implementation begins only after explicit spec approval and task creation.
 - Domain vocabulary is defined in `../../CONTEXT.md`.
 - The proposed process boundary is recorded in `../../docs/adr/0001-menu-bar-agent-owns-session-state.md`.
 - The proposed implementation and IPC stack is recorded in `../../docs/adr/0002-native-swift-and-versioned-local-ipc.md`.
 - The proposed persistence and timing model is recorded in `../../docs/adr/0003-transactional-storage-and-monotonic-timing.md`.
 - The proposed release and installation model is recorded in `../../docs/adr/0004-project-tap-and-ad-hoc-signing.md`.
 - The planned command and automation surface is defined in `cli-contract.md`.
+- Interactive terminal setup, Follow dashboard, plain fallback, and terminal safety are defined in `tui-design.md`.
+- IPC framing, negotiation, messages, and shared/public payload schemas are defined in `ipc-protocol.md` and `schemas/protocol-v1.schema.json`.
 - Durable accounting and recovery semantics are defined in `data-contract.md`.
+- Physical SQLite schema, transaction boundaries, migrations, backups, and Recovery behavior are defined in `database-design.md`, `schemas/database-v1.sql`, and `schemas/recovery-archive-v1.schema.json`.
 - Menu, Settings, summary, and accessibility behavior is defined in `ui-contract.md`.
+- Native popover/window dimensions and information layouts are defined in `native-ui-layouts.md`.
+- Build, release, Gatekeeper, tap, and update behavior is defined in `release-design.md`.
+- Required commands, test layers, evidence, and manual release matrix are defined in `validation-plan.md`.
 
 ## User experience
 
@@ -1337,7 +2890,7 @@ Technical macOS users can start and control a Pomodoro session with `pomo` or th
 - A start chooses either a finite round count or an open-ended session.
 - If a Session is active, bare interactive `pomo` always asks before replacing it and does not accept `--replace`. The flag belongs only to explicit non-interactive `pomo start`.
 - The CLI confirms startup and exits by default. An explicit `--follow` mode keeps live status in the terminal.
-- Follow mode updates one status line once per second and prints Phase transitions as durable lines.
+- Human Follow mode uses the compact observer dashboard defined by the TUI contract; JSON Follow remains NDJSON and plain Follow prints durable state changes without live redraw.
 - Pressing Control-C in follow mode detaches the CLI without stopping the Agent-owned Session.
 - The idle menu offers named/recent presets and a custom-session setup.
 - Custom Session opens a compact menu-bar popover rather than the Settings window.
@@ -1437,7 +2990,7 @@ Technical macOS users can start and control a Pomodoro session with `pomo` or th
 
 - Custom Session offers Start Once and Save as Preset actions.
 - While Idle, Quick Start leads the menu with the default Preset followed by up to three distinct Presets ordered by most recent start, then Custom Session and today's summary.
-- Recent Preset order survives Agent restart and updates after every successfully acknowledged CLI, menu, or interactive Session creation.
+- Recent Preset order survives Agent restart and updates when the Agent accepts CLI, menu, or interactive Session creation. It may persist if the Agent crashes before acknowledgment because recency is convenience metadata, not proof of a surviving Session.
 - When Classic is not the default, it is eligible for recent Quick Start like any user Preset; only the current default is excluded as a duplicate.
 - During a Session, Phase/state and remaining time lead the menu, followed by completed/target or open-ended Round progress, the primary control, secondary Skip/Stop actions, and the next Phase.
 - The primary control reads Start in Ready, Pause in Running, and Resume in Paused. Skip and Stop remain secondary actions.
@@ -1450,7 +3003,7 @@ Technical macOS users can start and control a Pomodoro session with `pomo` or th
 - General contains launch-at-login and app-level behavior; Presets contains timing and transition configuration; Alerts contains notification and sound controls.
 - First app launch opens a compact welcome popover identifying the status item, offering Classic quick start, and linking Settings.
 - The welcome popover offers launch at login once, defaulting off; it never enables registration without explicit consent.
-- In-app full reset is available only while Idle and requires confirmation naming Presets, preferences, Summary Records, and onboarding state as deleted data.
+- In-app full reset is available while Idle or when a Recovery descriptor explicitly advertises Reset Data. It is unavailable during a normal active Session and requires confirmation naming Presets, preferences, Summary Records, and onboarding state as deleted data.
 - The detail summary window uses previous/next locale-aware week navigation, one accessible daily row per date, and weekly rollups.
 - First release has no system-wide keyboard shortcuts; complete keyboard operation applies while Pomo menus and windows are focused.
 
@@ -1476,6 +3029,7 @@ Technical macOS users can start and control a Pomodoro session with `pomo` or th
 - Users explicitly stop any Session and run `pomo quit` before `brew upgrade`; package scripts do not silently terminate the Agent.
 - Ordinary cask uninstall preserves local Presets, preferences, and Summary Records. An explicit cask zap or in-app full reset removes all Pomo-owned local data.
 - Opt-in launch at login uses the supported macOS 13 service-registration API and reports registration failures in Settings.
+- Bundle identifier is `com.nazakun.pomo`; source is released under the MIT License.
 
 ## Technical constraints
 
@@ -1496,6 +3050,9 @@ Technical macOS users can start and control a Pomodoro session with `pomo` or th
 - Before schema migration, Pomo creates an atomic versioned database backup and then migrates transactionally. Failure retains the backup and enters recovery mode.
 - Database migration failure preserves existing data, disables mutation, and enters a recovery mode offering diagnostics and explicit export/reset paths.
 - Recovery export produces a versioned JSON archive containing Presets, preferences, Summary Records, and schema metadata. First release does not import archives.
+- A required accounting or known-schema migration failure enters a blocked Recovery state. Timing and normal mutations stop while the exact pending operation remains retryable.
+- Recovery offers capability-driven Retry, Export, Discard Session, and Reset Data actions. Discard loses only pending uncommitted Focus; Reset is a distinct full-data action.
+- Known-schema exports are `.pomo-recovery.zip` bundles with SHA-256 manifest and JSON payload. An older app facing a newer unknown schema can export only a hashed raw database copy with explanatory metadata.
 - A running Phase derives remaining time from a monotonic deadline. Sleep detection captures the last reliable remaining duration and resumes in Paused state.
 - If the monotonic deadline is reached at or before observed sleep, completion occurs first; otherwise sleep pauses the positive remainder.
 - Wall-clock changes do not alter Phase duration; expected transition wall time is recalculated from the monotonic remainder.
@@ -1514,8 +3071,8 @@ Technical macOS users can start and control a Pomodoro session with `pomo` or th
 
 All milestones preserve the full stable 1.0 scope; they sequence risk rather than silently removing features.
 
-1. Prove one authoritative Agent, shared domain state machine, local IPC, menu countdown, and basic CLI Start/Status/Stop in development builds.
-2. Complete Phase controls, finite/open-ended transitions, sleep handling, Presets, Settings, notifications, sound, onboarding, and accessibility behavior.
+1. Prove one authoritative Agent, shared domain state machine, local IPC, minimal native menu countdown, and direct non-interactive CLI Start/Status/Stop in development builds.
+2. Complete the interactive TUI wizard/Follow dashboard, Phase controls, finite/open-ended transitions, sleep handling, Presets, Settings, notifications, sound, onboarding, and accessibility behavior.
 3. Complete Summary Records, streaks, history/reset, SQLite migrations, recovery mode, diagnostics, and failure-path UX.
 4. Complete universal packaging, invited technical preview validation, project Homebrew tap/GitHub releases, checksums, Hardened Runtime, trust instructions, and release automation.
 
@@ -1569,7 +3126,7 @@ Ad-hoc-signed previews are limited to maintainers and invited testers. Stable di
 - [ ] Homebrew upgrade does not silently terminate an Agent or active Session.
 - [ ] Launch-at-login can be enabled, disabled, and diagnosed through supported macOS APIs.
 - [ ] First launch explains the status item and offers, but does not enable, launch at login.
-- [ ] Full reset is unavailable during an active Session and removes only the explicitly confirmed Pomo-owned data when Idle.
+- [ ] Full reset is unavailable during a normal active Session and removes only explicitly confirmed Pomo-owned data while Idle or in Reset-capable Recovery.
 - [ ] A second app launch reuses the existing Agent and cannot create a competing state owner.
 - [ ] The local IPC endpoint rejects other-user access and incompatible protocol versions.
 - [ ] Concurrent controls serialize deterministically, revisions increase with mutations, and duplicate request IDs cannot apply an action twice.
@@ -1578,13 +3135,14 @@ Ad-hoc-signed previews are limited to maintainers and invited testers. Stable di
 - [ ] Stale-socket recovery never removes an endpoint owned by a live Agent or another user.
 - [ ] Database writes are transactional, migrations preserve data on failure, and recovery never resets data silently.
 - [ ] Migration creates a recoverable versioned backup and recovery export produces a schema-versioned JSON archive without promising first-release import.
+- [ ] Recovery freezes normal mutation, exposes only applicable actions, retries idempotently, and never conflates pending-Session discard with full-data reset.
 - [ ] Delayed UI ticks do not change Phase duration, and sleep always returns a running Phase to Paused with its pre-sleep remainder.
 - [ ] Deadline/sleep races and system wall-clock changes preserve the documented monotonic timing behavior.
 - [ ] Idle and active resource measurements, command latency, Agent launch timeout, and transition latency meet the documented quality targets under the release test conditions.
 
 ## Open questions
 
-No product-domain questions remain open from the first grilling round. Implementation planning must still resolve concrete JSON/IPC schemas, physical database schema and migration tooling, exact Gatekeeper instructions, release automation, final window layouts, and validation commands.
+No decision-bearing product, protocol, storage, TUI, native-layout, release, or validation questions remain open. Implementation-local type decomposition and script internals belong in task breakdown.
 
 ## Tasks
 
@@ -1614,7 +3172,7 @@ Exact commands, fixtures, performance test conditions, hardware availability, an
 <file path=".scratch/menu-bar-pomodoro/ui-contract.md">
 # Pomo UI Behavior Contract
 
-Status: Planning
+Status: Ready for approval
 
 This document defines first-release information hierarchy and interaction behavior without prescribing final pixel layout. It does not authorize implementation.
 
@@ -1642,7 +3200,7 @@ Deleted Presets disappear from recents. The default is not repeated in recent en
 
 When Classic is not the default, it is eligible for recent Quick Start like any user Preset.
 
-Recency survives Agent restart and updates only after a Session start is successfully acknowledged, regardless of whether it originated from CLI, menu, or interactive setup.
+Recency survives Agent restart and updates when the Agent accepts a Session start, regardless of whether it originated from CLI, menu, or interactive setup. It may remain after a pre-acknowledgment Agent crash and does not claim that the Session survived.
 
 Custom Session opens a compact status-item popover. It supports Preset selection, one-Session overrides, finite/open-ended choice, Start Once, and Save as Preset.
 
@@ -1695,12 +3253,20 @@ The built-in Classic Preset is immutable and duplicable. User Preset names are c
 - Phase and Session state changes produce concise VoiceOver announcements without announcing every one-second tick.
 - Reduce Motion disables nonessential transitions.
 - State, validation, and destructive-action meaning never rely on color alone.
+
+## Recovery state
+
+- The status item uses a non-color warning symbol and concise VoiceOver announcement without opening a forced modal.
+- The menu shows the failure reason and only actions advertised by the Recovery descriptor: Retry, Export, Discard Session, and/or Reset Data.
+- Normal Session controls are unavailable while Recovery blocks mutation.
+- Discard Session confirms loss of pending uncommitted Focus only. Reset Data is visually and verbally distinct, requires stronger confirmation, and presents export-first guidance.
+- Successful accounting Retry applies the contribution once and moves to the already-determined next Phase state. Successful migration Retry returns the Agent to Idle.
 </file>
 
 <file path="docs/adr/0001-menu-bar-agent-owns-session-state.md">
 # ADR-0001: Menu-Bar Agent Owns Session State
 
-Status: Proposed
+Status: Accepted
 
 ## Context
 
@@ -1756,7 +3322,7 @@ Rejected for the planned product because it adds an external installation depend
 <file path="docs/adr/0002-native-swift-and-versioned-local-ipc.md">
 # ADR-0002: Native Swift and Versioned Local IPC
 
-Status: Proposed
+Status: Accepted
 
 ## Context
 
@@ -1771,6 +3337,7 @@ The CLI and app may briefly differ in version during Homebrew upgrades or while 
 - Run as a menu-bar-only app during normal use. Settings and summary windows activate when requested without adding a second state owner.
 - Build the `pomo` executable in the same package and distribution.
 - Use Swift Argument Parser for commands, validation, help, and generated zsh, bash, and fish completions.
+- Implement interactive terminal behavior with a small internal ANSI/termios renderer behind testable terminal interfaces; do not add a broad TUI framework.
 - Enforce one Agent instance. Repeated launches reuse the existing Agent and forward the requested action.
 - Communicate through a same-user Unix domain socket under the OS-provided private per-user Darwin temporary directory, using an owner-only Pomo runtime subdirectory and peer validation where the platform permits it.
 - Use length-prefixed, explicitly versioned Codable JSON frames for finite requests/responses, state snapshots, errors, and streamed Agent events. Public `follow --json` output remains NDJSON.
@@ -1780,8 +3347,9 @@ The CLI and app may briefly differ in version during Homebrew upgrades or while 
 - Reject expired request IDs rather than applying them again. If a response is lost, allow the CLI to reconnect and retry only with the same request ID during the retry window.
 - Coalesce stale tick events for slow followers. If non-coalescible events exceed a bounded queue, send a terminal backpressure error when possible and disconnect that follower without blocking Agent mutations.
 - On startup, verify that no live owner/listener exists before removing an owner-owned stale socket endpoint.
+- Implement protocol v1 according to `.scratch/menu-bar-pomodoro/ipc-protocol.md` and its machine-readable schema.
 
-The exact runtime subpath, frame-size limit, protocol schema, compatibility policy between minor versions, and stale-socket recovery algorithm remain detailed-design decisions.
+Frame contents, version negotiation, runtime path, limits, retry behavior, follower buffering, and stale recovery are defined by the protocol contract. Swift type decomposition and socket implementation details remain implementation-local decisions.
 
 ## Consequences
 
@@ -1797,7 +3365,7 @@ The exact runtime subpath, frame-size limit, protocol schema, compatibility poli
 - The product must secure, clean up, and diagnose a filesystem socket.
 - Single-instance coordination and stale endpoints require careful startup sequencing.
 - A custom local protocol needs schema fixtures and compatibility tests.
-- Deduplication window duration and follower queue bounds remain explicit detailed-design constants with contract tests.
+- Protocol limits and compatibility rules become public contracts that require fixtures and compatibility tests.
 
 ## Alternatives considered
 
@@ -1813,7 +3381,7 @@ Not selected because it would duplicate domain/protocol models and complicate on
 <file path="docs/adr/0003-transactional-storage-and-monotonic-timing.md">
 # ADR-0003: Transactional Storage and Monotonic Timing
 
-Status: Proposed
+Status: Accepted
 
 ## Context
 
@@ -1826,17 +3394,18 @@ Active Sessions do not survive Agent or Mac restart. While awake, delayed run-lo
 - Store Presets and Summary Records in SQLite using GRDB behind domain-owned persistence interfaces, transactions, and explicit schema migrations.
 - Store finalized Focus contributions at integer-millisecond precision, split by recorded local date/timezone context at local midnight. Later timezone changes do not regroup history.
 - Store lightweight global preferences through macOS preferences APIs.
-- Store recent-Preset ordering and a minimal non-restorable clean-exit/active-Session interruption marker through macOS preferences APIs.
+- Store default-Preset selection and recent-Preset ordering in SQLite so deletion/fallback/recency updates remain transactional.
+- Store only lightweight global preferences and a minimal non-restorable clean-exit/active-Session interruption marker through macOS preferences APIs.
 - Keep active Session state in Agent memory; do not persist it for restoration.
 - Before migration, create an atomic versioned database backup. Migrate transactionally; on failure, retain the backup, preserve the existing database, disable mutations, and enter a user-visible recovery mode with diagnostics and explicit export/reset actions. Never reset automatically.
-- Recovery export is a versioned JSON archive of Presets, preferences, Summary Records, and schema metadata. First release does not import archives.
+- Known-schema Recovery export is a versioned JSON archive of Presets, preferences, Summary Records, and schema metadata. An older binary facing a newer unknown schema exports a hashed raw database copy instead. First release does not import archives.
 - Represent a running Phase using a monotonic deadline and derive displayed remaining time from that deadline rather than decrementing a counter.
 - Observe macOS sleep/wake lifecycle. On sleep, capture the last reliable remaining duration; on wake, return the Phase in Paused state with that duration.
 - If the deadline is at or before the observed sleep instant, complete the Phase before processing sleep; otherwise pause its positive remainder.
 - Ignore system wall-clock changes for duration accounting and recompute only the estimated expected transition wall time.
 - Round displayed whole seconds up until the completion/transition instant.
 
-The database schema, migration tooling, backup/export format, transaction boundaries for focus accounting, clock abstraction, and sleep-race handling remain detailed-design decisions.
+Schema, migration, backup/export, transaction, and Recovery behavior are defined by `.scratch/menu-bar-pomodoro/database-design.md` and its schemas. Clock implementation types remain implementation-local behind the documented monotonic/wall/sleep abstractions.
 
 Swift package dependencies use pinned resolved versions and require compatible permissive licenses plus maintenance/security review.
 
@@ -1874,7 +3443,7 @@ Rejected because elapsed sleep would consume Phase time, contradicting automatic
 <file path="docs/adr/0004-project-tap-and-ad-hoc-signing.md">
 # ADR-0004: Project Tap and Ad-Hoc Signing
 
-Status: Proposed
+Status: Accepted
 
 ## Context
 
@@ -1893,8 +3462,13 @@ The project will not use Apple Developer ID signing or notarization for current 
 - Require users to stop an active Session and run `pomo quit` before `brew upgrade`. Installation scripts must not silently terminate the Agent.
 - Preserve application data on ordinary uninstall. Define cask zap artifacts and an explicit in-app full reset for complete removal.
 - Implement opt-in launch at login through the supported macOS 13 service-registration API, not Homebrew services or shell startup files.
+- Use bundle identifier `com.nazakun.pomo` and MIT licensing.
+- Publish through `nazakun021/homebrew-pomo`, installed as `brew install --cask nazakun021/pomo/pomo`.
+- Document only Apple's System Settings → Privacy & Security → Open Anyway trust flow after checksum verification; do not recommend quarantine-removal commands.
+- Follow Semantic Versioning with shared app/CLI tags `vMAJOR.MINOR.PATCH`; protocol/database/archive schema versions evolve independently.
+- Use GitHub Actions with a protected manual-approval environment to publish the GitHub Release and tap update.
 
-Exact cask/archive layout, release-hosting automation, versioning, checksums, trust instructions, and update preflight mechanics remain release-engineering decisions.
+Artifact layout, release checks, trust instructions, and automation are defined by `.scratch/menu-bar-pomodoro/release-design.md`. Workflow implementation details remain task-local.
 
 ## Consequences
 
@@ -2199,6 +3773,10 @@ The state after a Phase completes when the next Phase is selected but automatic 
 
 The Agent state in which no Session exists. The menu-bar item remains available and can start a new Session.
 
+### Recovery
+
+The blocked Agent state entered when required accounting, migration, or database access cannot complete safely. Timing and ordinary mutation stop. A capability descriptor exposes only valid Retry, Export, Discard Session, or Reset Data actions. Recovery is not Idle, Ready, or Paused.
+
 ### Summary Record
 
 Locally persisted finalized Focus contributions used for daily and weekly focus-time and completed-Round totals, plus a current streak. Contributions retain integer-millisecond elapsed time and recorded local date/timezone context, split at local midnight where necessary. They include elapsed focus from Phases interrupted by skip, stop, Session replacement, or confirmed Agent quit. Records remain local until explicitly cleared. A Summary Record is not a detailed event log.
@@ -2222,12 +3800,18 @@ Locally persisted finalized Focus contributions used for daily and weekly focus-
 - At least one completed Round qualifies a local date for the current streak; partial focus time does not.
 - A streak through yesterday remains current during today and resets only after a full local date is missed.
 - Weekly boundaries follow the user's macOS locale.
+- Required accounting failure enters Recovery with the pending contribution held in memory; successful Retry applies it exactly once before continuing.
+- Discard Session in Recovery loses only pending uncommitted Focus and preserves committed data. Reset Data is separate and destructive.
 
 ## Terms to avoid
 
 - Do not use "timer" when the distinction between Session and Phase matters.
 - Do not use "cycle" as a synonym for Round; it is ambiguous about whether a break is included.
 - Do not use "background CLI" for the Agent.
+</file>
+
+<file path="README.md">
+# cli-pomodoro
 </file>
 
 <file path="skills-lock.json">
@@ -2278,10 +3862,6 @@ Locally persisted finalized Focus contributions used for daily and weekly focus-
     }
   }
 }
-</file>
-
-<file path="README.md">
-# cli-pomodoro
 </file>
 
 </files>

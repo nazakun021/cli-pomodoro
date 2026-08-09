@@ -1,5 +1,7 @@
 # Feature: Menu Bar Pomodoro
 
+Status: Ready for approval
+
 ## Outcome
 
 Technical macOS users can start and control a Pomodoro session with `pomo` or the menu bar while seeing the active phase and remaining time in the Mac menu bar status area.
@@ -10,15 +12,21 @@ Technical macOS users can start and control a Pomodoro session with `pomo` or th
 - The product is a self-contained native macOS experience distributed through Homebrew.
 - A persistent menu-bar agent owns timer state. The CLI is a short-lived controller and optional live observer.
 - The first release supports classic focus, short-break, and long-break phases.
-- Planning is in progress. This document records resolved product decisions; it does not authorize implementation.
+- Planning is complete. This document records resolved product decisions; implementation begins only after explicit spec approval and task creation.
 - Domain vocabulary is defined in `../../CONTEXT.md`.
 - The proposed process boundary is recorded in `../../docs/adr/0001-menu-bar-agent-owns-session-state.md`.
 - The proposed implementation and IPC stack is recorded in `../../docs/adr/0002-native-swift-and-versioned-local-ipc.md`.
 - The proposed persistence and timing model is recorded in `../../docs/adr/0003-transactional-storage-and-monotonic-timing.md`.
 - The proposed release and installation model is recorded in `../../docs/adr/0004-project-tap-and-ad-hoc-signing.md`.
 - The planned command and automation surface is defined in `cli-contract.md`.
+- Interactive terminal setup, Follow dashboard, plain fallback, and terminal safety are defined in `tui-design.md`.
+- IPC framing, negotiation, messages, and shared/public payload schemas are defined in `ipc-protocol.md` and `schemas/protocol-v1.schema.json`.
 - Durable accounting and recovery semantics are defined in `data-contract.md`.
+- Physical SQLite schema, transaction boundaries, migrations, backups, and Recovery behavior are defined in `database-design.md`, `schemas/database-v1.sql`, and `schemas/recovery-archive-v1.schema.json`.
 - Menu, Settings, summary, and accessibility behavior is defined in `ui-contract.md`.
+- Native popover/window dimensions and information layouts are defined in `native-ui-layouts.md`.
+- Build, release, Gatekeeper, tap, and update behavior is defined in `release-design.md`.
+- Required commands, test layers, evidence, and manual release matrix are defined in `validation-plan.md`.
 
 ## User experience
 
@@ -34,7 +42,7 @@ Technical macOS users can start and control a Pomodoro session with `pomo` or th
 - A start chooses either a finite round count or an open-ended session.
 - If a Session is active, bare interactive `pomo` always asks before replacing it and does not accept `--replace`. The flag belongs only to explicit non-interactive `pomo start`.
 - The CLI confirms startup and exits by default. An explicit `--follow` mode keeps live status in the terminal.
-- Follow mode updates one status line once per second and prints Phase transitions as durable lines.
+- Human Follow mode uses the compact observer dashboard defined by the TUI contract; JSON Follow remains NDJSON and plain Follow prints durable state changes without live redraw.
 - Pressing Control-C in follow mode detaches the CLI without stopping the Agent-owned Session.
 - The idle menu offers named/recent presets and a custom-session setup.
 - Custom Session opens a compact menu-bar popover rather than the Settings window.
@@ -134,7 +142,7 @@ Technical macOS users can start and control a Pomodoro session with `pomo` or th
 
 - Custom Session offers Start Once and Save as Preset actions.
 - While Idle, Quick Start leads the menu with the default Preset followed by up to three distinct Presets ordered by most recent start, then Custom Session and today's summary.
-- Recent Preset order survives Agent restart and updates after every successfully acknowledged CLI, menu, or interactive Session creation.
+- Recent Preset order survives Agent restart and updates when the Agent accepts CLI, menu, or interactive Session creation. It may persist if the Agent crashes before acknowledgment because recency is convenience metadata, not proof of a surviving Session.
 - When Classic is not the default, it is eligible for recent Quick Start like any user Preset; only the current default is excluded as a duplicate.
 - During a Session, Phase/state and remaining time lead the menu, followed by completed/target or open-ended Round progress, the primary control, secondary Skip/Stop actions, and the next Phase.
 - The primary control reads Start in Ready, Pause in Running, and Resume in Paused. Skip and Stop remain secondary actions.
@@ -147,7 +155,7 @@ Technical macOS users can start and control a Pomodoro session with `pomo` or th
 - General contains launch-at-login and app-level behavior; Presets contains timing and transition configuration; Alerts contains notification and sound controls.
 - First app launch opens a compact welcome popover identifying the status item, offering Classic quick start, and linking Settings.
 - The welcome popover offers launch at login once, defaulting off; it never enables registration without explicit consent.
-- In-app full reset is available only while Idle and requires confirmation naming Presets, preferences, Summary Records, and onboarding state as deleted data.
+- In-app full reset is available while Idle or when a Recovery descriptor explicitly advertises Reset Data. It is unavailable during a normal active Session and requires confirmation naming Presets, preferences, Summary Records, and onboarding state as deleted data.
 - The detail summary window uses previous/next locale-aware week navigation, one accessible daily row per date, and weekly rollups.
 - First release has no system-wide keyboard shortcuts; complete keyboard operation applies while Pomo menus and windows are focused.
 
@@ -173,6 +181,7 @@ Technical macOS users can start and control a Pomodoro session with `pomo` or th
 - Users explicitly stop any Session and run `pomo quit` before `brew upgrade`; package scripts do not silently terminate the Agent.
 - Ordinary cask uninstall preserves local Presets, preferences, and Summary Records. An explicit cask zap or in-app full reset removes all Pomo-owned local data.
 - Opt-in launch at login uses the supported macOS 13 service-registration API and reports registration failures in Settings.
+- Bundle identifier is `com.nazakun.pomo`; source is released under the MIT License.
 
 ## Technical constraints
 
@@ -193,6 +202,9 @@ Technical macOS users can start and control a Pomodoro session with `pomo` or th
 - Before schema migration, Pomo creates an atomic versioned database backup and then migrates transactionally. Failure retains the backup and enters recovery mode.
 - Database migration failure preserves existing data, disables mutation, and enters a recovery mode offering diagnostics and explicit export/reset paths.
 - Recovery export produces a versioned JSON archive containing Presets, preferences, Summary Records, and schema metadata. First release does not import archives.
+- A required accounting or known-schema migration failure enters a blocked Recovery state. Timing and normal mutations stop while the exact pending operation remains retryable.
+- Recovery offers capability-driven Retry, Export, Discard Session, and Reset Data actions. Discard loses only pending uncommitted Focus; Reset is a distinct full-data action.
+- Known-schema exports are `.pomo-recovery.zip` bundles with SHA-256 manifest and JSON payload. An older app facing a newer unknown schema can export only a hashed raw database copy with explanatory metadata.
 - A running Phase derives remaining time from a monotonic deadline. Sleep detection captures the last reliable remaining duration and resumes in Paused state.
 - If the monotonic deadline is reached at or before observed sleep, completion occurs first; otherwise sleep pauses the positive remainder.
 - Wall-clock changes do not alter Phase duration; expected transition wall time is recalculated from the monotonic remainder.
@@ -211,8 +223,8 @@ Technical macOS users can start and control a Pomodoro session with `pomo` or th
 
 All milestones preserve the full stable 1.0 scope; they sequence risk rather than silently removing features.
 
-1. Prove one authoritative Agent, shared domain state machine, local IPC, menu countdown, and basic CLI Start/Status/Stop in development builds.
-2. Complete Phase controls, finite/open-ended transitions, sleep handling, Presets, Settings, notifications, sound, onboarding, and accessibility behavior.
+1. Prove one authoritative Agent, shared domain state machine, local IPC, minimal native menu countdown, and direct non-interactive CLI Start/Status/Stop in development builds.
+2. Complete the interactive TUI wizard/Follow dashboard, Phase controls, finite/open-ended transitions, sleep handling, Presets, Settings, notifications, sound, onboarding, and accessibility behavior.
 3. Complete Summary Records, streaks, history/reset, SQLite migrations, recovery mode, diagnostics, and failure-path UX.
 4. Complete universal packaging, invited technical preview validation, project Homebrew tap/GitHub releases, checksums, Hardened Runtime, trust instructions, and release automation.
 
@@ -266,7 +278,7 @@ Ad-hoc-signed previews are limited to maintainers and invited testers. Stable di
 - [ ] Homebrew upgrade does not silently terminate an Agent or active Session.
 - [ ] Launch-at-login can be enabled, disabled, and diagnosed through supported macOS APIs.
 - [ ] First launch explains the status item and offers, but does not enable, launch at login.
-- [ ] Full reset is unavailable during an active Session and removes only the explicitly confirmed Pomo-owned data when Idle.
+- [ ] Full reset is unavailable during a normal active Session and removes only explicitly confirmed Pomo-owned data while Idle or in Reset-capable Recovery.
 - [ ] A second app launch reuses the existing Agent and cannot create a competing state owner.
 - [ ] The local IPC endpoint rejects other-user access and incompatible protocol versions.
 - [ ] Concurrent controls serialize deterministically, revisions increase with mutations, and duplicate request IDs cannot apply an action twice.
@@ -275,13 +287,14 @@ Ad-hoc-signed previews are limited to maintainers and invited testers. Stable di
 - [ ] Stale-socket recovery never removes an endpoint owned by a live Agent or another user.
 - [ ] Database writes are transactional, migrations preserve data on failure, and recovery never resets data silently.
 - [ ] Migration creates a recoverable versioned backup and recovery export produces a schema-versioned JSON archive without promising first-release import.
+- [ ] Recovery freezes normal mutation, exposes only applicable actions, retries idempotently, and never conflates pending-Session discard with full-data reset.
 - [ ] Delayed UI ticks do not change Phase duration, and sleep always returns a running Phase to Paused with its pre-sleep remainder.
 - [ ] Deadline/sleep races and system wall-clock changes preserve the documented monotonic timing behavior.
 - [ ] Idle and active resource measurements, command latency, Agent launch timeout, and transition latency meet the documented quality targets under the release test conditions.
 
 ## Open questions
 
-No product-domain questions remain open from the first grilling round. Implementation planning must still resolve concrete JSON/IPC schemas, physical database schema and migration tooling, exact Gatekeeper instructions, release automation, final window layouts, and validation commands.
+No decision-bearing product, protocol, storage, TUI, native-layout, release, or validation questions remain open. Implementation-local type decomposition and script internals belong in task breakdown.
 
 ## Tasks
 

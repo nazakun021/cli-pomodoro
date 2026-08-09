@@ -1,0 +1,453 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pomo.local/schemas/protocol-v1.schema.json",
+  "title": "Pomo protocol and public JSON schema v1",
+  "oneOf": [
+    { "$ref": "#/$defs/hello" },
+    { "$ref": "#/$defs/hello_ack" },
+    { "$ref": "#/$defs/hello_reject" },
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/response" },
+    { "$ref": "#/$defs/event" },
+    { "$ref": "#/$defs/public_response" },
+    { "$ref": "#/$defs/public_event" }
+  ],
+  "$defs": {
+    "protocol_version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["major", "minor"],
+      "properties": {
+        "major": { "type": "integer", "minimum": 1 },
+        "minor": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "protocol_range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["major", "minimum_minor", "maximum_minor"],
+      "properties": {
+        "major": { "type": "integer", "minimum": 1 },
+        "minimum_minor": { "type": "integer", "minimum": 0 },
+        "maximum_minor": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "exit_code", "message", "retryable", "details"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "exit_code": { "type": "integer", "minimum": 1, "maximum": 7 },
+        "message": { "type": "string", "minLength": 1 },
+        "retryable": { "type": "boolean" },
+        "details": { "type": ["object", "null"] }
+      }
+    },
+    "session_configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["focus_seconds", "short_break_seconds", "long_break_seconds", "long_break_every", "open_ended", "target_rounds", "auto_start_focus", "auto_start_breaks"],
+      "properties": {
+        "focus_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "short_break_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "long_break_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "long_break_every": { "type": "integer", "minimum": 1 },
+        "open_ended": { "type": "boolean" },
+        "target_rounds": { "type": ["integer", "null"], "minimum": 1 },
+        "auto_start_focus": { "type": "boolean" },
+        "auto_start_breaks": { "type": "boolean" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "open_ended": { "const": true },
+            "target_rounds": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "open_ended": { "const": false },
+            "target_rounds": { "type": "integer", "minimum": 1 }
+          }
+        }
+      ]
+    },
+    "session_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent_running", "agent_instance_id", "agent_state", "state_revision", "session_id", "session_state", "phase_id", "phase_type", "source_preset_name", "configuration", "completed_rounds", "configured_duration_seconds", "remaining_seconds", "session_started_at", "phase_started_at", "expected_transition_at", "recovery"],
+      "properties": {
+        "agent_running": { "type": "boolean" },
+        "agent_instance_id": { "type": ["string", "null"], "format": "uuid" },
+        "agent_state": { "enum": ["not_running", "idle", "session", "recovery"] },
+        "state_revision": { "type": "integer", "minimum": 0 },
+        "session_id": { "type": ["string", "null"], "format": "uuid" },
+        "session_state": { "type": ["string", "null"], "enum": ["ready", "running", "paused", "blocked", null] },
+        "phase_id": { "type": ["string", "null"], "format": "uuid" },
+        "phase_type": { "type": ["string", "null"], "enum": ["focus", "short_break", "long_break", null] },
+        "source_preset_name": { "type": ["string", "null"] },
+        "configuration": { "oneOf": [{ "$ref": "#/$defs/session_configuration" }, { "type": "null" }] },
+        "completed_rounds": { "type": ["integer", "null"], "minimum": 0 },
+        "configured_duration_seconds": { "type": ["integer", "null"], "minimum": 1, "maximum": 86400 },
+        "remaining_seconds": { "type": ["integer", "null"], "minimum": 0, "maximum": 86400 },
+        "session_started_at": { "type": ["string", "null"], "format": "date-time" },
+        "phase_started_at": { "type": ["string", "null"], "format": "date-time" },
+        "expected_transition_at": { "type": ["string", "null"], "format": "date-time" },
+        "recovery": { "oneOf": [{ "$ref": "#/$defs/recovery_descriptor" }, { "type": "null" }] }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "agent_running": { "const": false },
+            "agent_instance_id": { "type": "null" },
+            "agent_state": { "const": "not_running" },
+            "session_id": { "type": "null" },
+            "session_state": { "type": "null" },
+            "phase_id": { "type": "null" },
+            "phase_type": { "type": "null" },
+            "source_preset_name": { "type": "null" },
+            "configuration": { "type": "null" },
+            "completed_rounds": { "type": "null" },
+            "configured_duration_seconds": { "type": "null" },
+            "remaining_seconds": { "type": "null" },
+            "session_started_at": { "type": "null" },
+            "phase_started_at": { "type": "null" },
+            "expected_transition_at": { "type": "null" },
+            "recovery": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "agent_running": { "const": true },
+            "agent_instance_id": { "type": "string", "format": "uuid" },
+            "agent_state": { "const": "idle" },
+            "session_id": { "type": "null" },
+            "session_state": { "type": "null" },
+            "phase_id": { "type": "null" },
+            "phase_type": { "type": "null" },
+            "source_preset_name": { "type": "null" },
+            "configuration": { "type": "null" },
+            "completed_rounds": { "type": "null" },
+            "configured_duration_seconds": { "type": "null" },
+            "remaining_seconds": { "type": "null" },
+            "session_started_at": { "type": "null" },
+            "phase_started_at": { "type": "null" },
+            "expected_transition_at": { "type": "null" },
+            "recovery": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "agent_running": { "const": true },
+            "agent_instance_id": { "type": "string", "format": "uuid" },
+            "agent_state": { "const": "session" },
+            "session_id": { "type": "string", "format": "uuid" },
+            "session_state": { "enum": ["ready", "running", "paused"] },
+            "phase_id": { "type": "string", "format": "uuid" },
+            "phase_type": { "enum": ["focus", "short_break", "long_break"] },
+            "configuration": { "$ref": "#/$defs/session_configuration" },
+            "completed_rounds": { "type": "integer", "minimum": 0 },
+            "configured_duration_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+            "remaining_seconds": { "type": "integer", "minimum": 0, "maximum": 86400 },
+            "session_started_at": { "type": "string", "format": "date-time" },
+            "recovery": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "agent_running": { "const": true },
+            "agent_instance_id": { "type": "string", "format": "uuid" },
+            "agent_state": { "const": "recovery" },
+            "session_state": { "type": ["string", "null"], "enum": ["blocked", null] },
+            "recovery": { "$ref": "#/$defs/recovery_descriptor" }
+          }
+        }
+      ]
+    },
+    "recovery_descriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "message", "can_retry", "can_export", "can_discard_session", "can_reset_data"],
+      "properties": {
+        "reason": { "enum": ["accounting_write_failed", "migration_failed", "newer_schema", "database_corrupt"] },
+        "message": { "type": "string", "minLength": 1 },
+        "can_retry": { "type": "boolean" },
+        "can_export": { "type": "boolean" },
+        "can_discard_session": { "type": "boolean" },
+        "can_reset_data": { "type": "boolean" }
+      }
+    },
+    "doctor_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["healthy", "checks"],
+      "properties": {
+        "healthy": { "type": "boolean" },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "status", "message", "recovery"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "status": { "enum": ["pass", "warning", "failure"] },
+              "message": { "type": "string", "minLength": 1 },
+              "recovery": { "type": ["string", "null"] }
+            }
+          }
+        }
+      }
+    },
+    "action_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message", "path"],
+      "properties": {
+        "message": { "type": "string", "minLength": 1 },
+        "path": { "type": ["string", "null"] }
+      }
+    },
+    "command_result": {
+      "oneOf": [
+        { "$ref": "#/$defs/session_snapshot" },
+        { "$ref": "#/$defs/doctor_result" },
+        { "$ref": "#/$defs/action_result" }
+      ]
+    },
+    "start_arguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["preset_name", "focus_seconds", "short_break_seconds", "long_break_seconds", "long_break_every", "open_ended", "target_rounds", "auto_start_focus", "auto_start_breaks", "replace", "follow"],
+      "properties": {
+        "preset_name": { "type": ["string", "null"] },
+        "focus_seconds": { "type": ["integer", "null"], "minimum": 1, "maximum": 86400 },
+        "short_break_seconds": { "type": ["integer", "null"], "minimum": 1, "maximum": 86400 },
+        "long_break_seconds": { "type": ["integer", "null"], "minimum": 1, "maximum": 86400 },
+        "long_break_every": { "type": ["integer", "null"], "minimum": 1 },
+        "open_ended": { "type": ["boolean", "null"] },
+        "target_rounds": { "type": ["integer", "null"], "minimum": 1 },
+        "auto_start_focus": { "type": ["boolean", "null"] },
+        "auto_start_breaks": { "type": ["boolean", "null"] },
+        "replace": { "type": "boolean" },
+        "follow": { "type": "boolean" }
+      }
+    },
+    "command": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "arguments"],
+          "properties": {
+            "name": { "const": "start" },
+            "arguments": { "$ref": "#/$defs/start_arguments" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "arguments"],
+          "properties": {
+            "name": { "enum": ["recovery_status", "recovery_retry"] },
+            "arguments": { "type": "object", "maxProperties": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "arguments"],
+          "properties": {
+            "name": { "const": "recovery_export" },
+            "arguments": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path"],
+              "properties": { "path": { "type": "string", "minLength": 1 } }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "arguments"],
+          "properties": {
+            "name": { "enum": ["recovery_discard", "recovery_reset"] },
+            "arguments": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["force"],
+              "properties": { "force": { "const": true } }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "arguments"],
+          "properties": {
+            "name": { "enum": ["status", "pause", "resume", "skip", "stop", "follow", "doctor"] },
+            "arguments": { "type": "object", "maxProperties": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "arguments"],
+          "properties": {
+            "name": { "const": "quit" },
+            "arguments": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["force"],
+              "properties": { "force": { "type": "boolean" } }
+            }
+          }
+        }
+      ]
+    },
+    "hello": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_type", "message_id", "client_name", "client_version", "supported_protocol", "capabilities"],
+      "properties": {
+        "message_type": { "const": "hello" },
+        "message_id": { "type": "string", "format": "uuid" },
+        "client_name": { "const": "pomo" },
+        "client_version": { "type": "string", "minLength": 1 },
+        "supported_protocol": { "$ref": "#/$defs/protocol_range" },
+        "capabilities": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    },
+    "hello_ack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_type", "message_id", "reply_to", "agent_version", "agent_instance_id", "negotiated_protocol", "capabilities", "state_revision"],
+      "properties": {
+        "message_type": { "const": "hello_ack" },
+        "message_id": { "type": "string", "format": "uuid" },
+        "reply_to": { "type": "string", "format": "uuid" },
+        "agent_version": { "type": "string", "minLength": 1 },
+        "agent_instance_id": { "type": "string", "format": "uuid" },
+        "negotiated_protocol": { "$ref": "#/$defs/protocol_version" },
+        "capabilities": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "state_revision": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "hello_reject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_type", "message_id", "reply_to", "agent_version", "supported_protocol", "error"],
+      "properties": {
+        "message_type": { "const": "hello_reject" },
+        "message_id": { "type": "string", "format": "uuid" },
+        "reply_to": { "type": "string", "format": "uuid" },
+        "agent_version": { "type": "string", "minLength": 1 },
+        "supported_protocol": { "$ref": "#/$defs/protocol_range" },
+        "error": { "$ref": "#/$defs/error" }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_type", "protocol_version", "request_id", "agent_instance_id", "issued_at", "command"],
+      "properties": {
+        "message_type": { "const": "request" },
+        "protocol_version": { "$ref": "#/$defs/protocol_version" },
+        "request_id": { "type": "string", "format": "uuid" },
+        "agent_instance_id": { "type": "string", "format": "uuid" },
+        "issued_at": { "type": "string", "format": "date-time" },
+        "command": { "$ref": "#/$defs/command" }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_type", "protocol_version", "request_id", "ok", "state_revision", "result", "error"],
+      "properties": {
+        "message_type": { "const": "response" },
+        "protocol_version": { "$ref": "#/$defs/protocol_version" },
+        "request_id": { "type": "string", "format": "uuid" },
+        "ok": { "type": "boolean" },
+        "state_revision": { "type": "integer", "minimum": 0 },
+        "result": { "oneOf": [{ "$ref": "#/$defs/command_result" }, { "type": "null" }] },
+        "error": { "oneOf": [{ "$ref": "#/$defs/error" }, { "type": "null" }] }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "ok": { "const": true },
+            "result": { "$ref": "#/$defs/command_result" },
+            "error": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "ok": { "const": false },
+            "result": { "type": "null" },
+            "error": { "$ref": "#/$defs/error" }
+          }
+        }
+      ]
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_type", "protocol_version", "request_id", "sequence", "event_type", "occurred_at", "state_revision", "snapshot", "error"],
+      "properties": {
+        "message_type": { "const": "event" },
+        "protocol_version": { "$ref": "#/$defs/protocol_version" },
+        "request_id": { "type": "string", "format": "uuid" },
+        "sequence": { "type": "integer", "minimum": 0 },
+        "event_type": { "enum": ["initial_snapshot", "tick", "transition", "session_ended", "agent_quitting", "backpressure", "recovery_entered", "recovery_resolved"] },
+        "occurred_at": { "type": "string", "format": "date-time" },
+        "state_revision": { "type": "integer", "minimum": 0 },
+        "snapshot": { "oneOf": [{ "$ref": "#/$defs/session_snapshot" }, { "type": "null" }] },
+        "error": { "oneOf": [{ "$ref": "#/$defs/error" }, { "type": "null" }] }
+      }
+    },
+    "public_response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "command", "ok", "data", "error"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "command": { "enum": ["start", "status", "pause", "resume", "skip", "stop", "quit", "doctor", "recovery_status", "recovery_retry", "recovery_export", "recovery_discard", "recovery_reset"] },
+        "ok": { "type": "boolean" },
+        "data": { "oneOf": [{ "$ref": "#/$defs/command_result" }, { "type": "null" }] },
+        "error": { "oneOf": [{ "$ref": "#/$defs/error" }, { "type": "null" }] }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "ok": { "const": true },
+            "data": { "$ref": "#/$defs/command_result" },
+            "error": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "ok": { "const": false },
+            "data": { "type": "null" },
+            "error": { "$ref": "#/$defs/error" }
+          }
+        }
+      ]
+    },
+    "public_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "sequence", "event_type", "occurred_at", "state_revision", "snapshot", "error"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "sequence": { "type": "integer", "minimum": 0 },
+        "event_type": { "enum": ["initial_snapshot", "tick", "transition", "session_ended", "agent_quitting", "backpressure", "recovery_entered", "recovery_resolved"] },
+        "occurred_at": { "type": "string", "format": "date-time" },
+        "state_revision": { "type": "integer", "minimum": 0 },
+        "snapshot": { "oneOf": [{ "$ref": "#/$defs/session_snapshot" }, { "type": "null" }] },
+        "error": { "oneOf": [{ "$ref": "#/$defs/error" }, { "type": "null" }] }
+      }
+    }
+  }
+}

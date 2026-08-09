@@ -46,6 +46,10 @@ The state after a Phase completes when the next Phase is selected but automatic 
 
 The Agent state in which no Session exists. The menu-bar item remains available and can start a new Session.
 
+### Recovery
+
+The blocked Agent state entered when required accounting, migration, or database access cannot complete safely. Timing and ordinary mutation stop. A capability descriptor exposes only valid Retry, Export, Discard Session, or Reset Data actions. Recovery is not Idle, Ready, or Paused.
+
 ### Summary Record
 
 Locally persisted finalized Focus contributions used for daily and weekly focus-time and completed-Round totals, plus a current streak. Contributions retain integer-millisecond elapsed time and recorded local date/timezone context, split at local midnight where necessary. They include elapsed focus from Phases interrupted by skip, stop, Session replacement, or confirmed Agent quit. Records remain local until explicitly cleared. A Summary Record is not a detailed event log.
@@ -69,6 +73,8 @@ Locally persisted finalized Focus contributions used for daily and weekly focus-
 - At least one completed Round qualifies a local date for the current streak; partial focus time does not.
 - A streak through yesterday remains current during today and resets only after a full local date is missed.
 - Weekly boundaries follow the user's macOS locale.
+- Required accounting failure enters Recovery with the pending contribution held in memory; successful Retry applies it exactly once before continuing.
+- Discard Session in Recovery loses only pending uncommitted Focus and preserves committed data. Reset Data is separate and destructive.
 
 ## Terms to avoid
 

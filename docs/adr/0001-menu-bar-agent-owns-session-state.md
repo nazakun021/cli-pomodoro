@@ -1,6 +1,6 @@
 # ADR-0001: Menu-Bar Agent Owns Session State
 
-Status: Proposed
+Status: Accepted
 
 ## Context
 

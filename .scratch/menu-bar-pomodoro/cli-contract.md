@@ -1,6 +1,6 @@
 # Pomo CLI Contract
 
-Status: Planning
+Status: Ready for approval
 
 This document defines the first-release public command and automation contract. It does not authorize implementation.
 
@@ -10,6 +10,8 @@ This document defines the first-release public command and automation contract. 
 - Human-readable output is the default.
 - Global `--json` requests machine-readable output from every command.
 - Bare `pomo --json` is a usage error; interactive setup is available only in human TTY mode.
+- Bare `pomo` requires TTY stdin and stdout. Non-TTY use is a usage error with explicit `pomo start` and JSON examples.
+- Global `--plain` selects line-oriented prompts/output without cursor movement, alternate screen, or live redraw.
 - Human errors go to standard error. JSON mode writes one parseable envelope to standard output even on failure, except that `follow --json` and `start --follow --json` write NDJSON streams.
 - Durations are positive, composable integer units from 1 second through 24 hours, such as `90s`, `25m`, and `1h30m`. Zero, negative, fractional, unitless, malformed, and over-24-hour values are usage errors.
 - Control-C detaches interactive and JSON follow clients without stopping the Agent-owned Session.
@@ -22,6 +24,8 @@ This document defines the first-release public command and automation contract. 
 ### `pomo`
 
 Open interactive setup: choose the default, a recent, or another named Preset; review and optionally override values; then start.
+
+Default TTY mode uses the three-step alternate-screen wizard in `tui-design.md`. `--plain` uses equivalent numbered, line-oriented prompts.
 
 ### `pomo start [DURATION] [options]`
 
@@ -42,7 +46,9 @@ Options:
 
 Supplying both positional `DURATION` and `--focus` is a usage error. Without `--replace`, non-interactive Start fails if a Session exists. Bare interactive `pomo` does not accept `--replace` and always asks before replacement.
 
-Replacement is one serialized mutation: if the old Session is in Focus, finalize elapsed Focus time without completing a Round; if it is in a Break, create no Summary Record. Preserve all prior summaries, end the old Session, then create the new Session. Failure before new-Session creation must not leave accounting partially applied.
+Replacement is one serialized operation: if the old Session is in Focus, finalize elapsed Focus time without completing a Round; if it is in a Break, create no Summary Record. Preserve all prior summaries, commit eligible accounting, then swap to the prevalidated new in-memory Session and acknowledge success.
+
+SQLite commit and volatile Session swap are not falsely described as one transaction. If the Agent crashes after accounting commits but before acknowledgment, committed Focus remains while restart discards both volatile old/new Sessions. The CLI reports success only after acknowledgment; an unavailable/lost response cannot promise that the new Session exists.
 
 ### `pomo status`
 
@@ -68,7 +74,9 @@ Stop the active Session immediately without a CLI confirmation. Finalize partial
 
 ### `pomo follow`
 
-Attach to the active Session. Human mode updates one status line once per second and prints transitions as durable lines. JSON mode emits NDJSON. It is an invalid-state error from Idle.
+Attach to the active Session. Human mode opens the observer-only alternate-screen dashboard in `tui-design.md`. Plain mode prints the initial state, transitions, and terminal event without tick redraws. JSON mode emits NDJSON. It is an invalid-state error from Idle.
+
+The dashboard accepts only help and detach input; it displays explicit `pomo pause|resume|skip|stop` command hints rather than mutating the Session. On exit it restores the terminal and prints one concise detached/ended line.
 
 ### `pomo quit [--force]`
 
@@ -81,6 +89,26 @@ Perform read-only checks of installation layout, CLI/Agent versions, protocol co
 Optional capabilities that are intentionally disabled or denied are reported as warnings. Doctor exits successfully when core installation, Agent communication, and durable-data health are good.
 
 Doctor is read-only and never requests permission or repairs state. If diagnosis finds a core filesystem/socket permission failure, it exits 7 with a stable permission error. Optional notification or launch-at-login denial remains an exit-0 warning.
+
+### `pomo recovery status`
+
+Print the Recovery descriptor and available actions. Ordinary `pomo status` also exits 0 with a Recovery snapshot. Normal mutating commands exit 6 and point to recovery actions.
+
+### `pomo recovery retry`
+
+Retry the exact pending accounting transaction or known-schema migration when the Recovery descriptor advertises `can_retry`. The operation is idempotent. On success, accounting completes once and the Session proceeds to its already-determined next state, or migration completes and the Agent returns Idle.
+
+### `pomo recovery export PATH`
+
+Write one `.pomo-recovery.zip`. Known schemas contain a SHA-256 manifest and JSON data payload. Unknown newer schemas contain a hashed raw SQLite copy and explanatory metadata.
+
+### `pomo recovery discard --force`
+
+When `can_discard_session` is true, confirm loss of only the pending uncommitted Focus contribution, end that Session, preserve committed data, and return Idle.
+
+### `pomo recovery reset --force`
+
+When `can_reset_data` is true, remove all Pomo-owned durable data after explicit force/GUI confirmation. This is distinct from Discard Session and presents export-first guidance.
 
 ## Exit codes
 

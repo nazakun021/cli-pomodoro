@@ -1,6 +1,6 @@
 # ADR-0004: Project Tap and Ad-Hoc Signing
 
-Status: Proposed
+Status: Accepted
 
 ## Context
 
@@ -19,8 +19,13 @@ The project will not use Apple Developer ID signing or notarization for current 
 - Require users to stop an active Session and run `pomo quit` before `brew upgrade`. Installation scripts must not silently terminate the Agent.
 - Preserve application data on ordinary uninstall. Define cask zap artifacts and an explicit in-app full reset for complete removal.
 - Implement opt-in launch at login through the supported macOS 13 service-registration API, not Homebrew services or shell startup files.
+- Use bundle identifier `com.nazakun.pomo` and MIT licensing.
+- Publish through `nazakun021/homebrew-pomo`, installed as `brew install --cask nazakun021/pomo/pomo`.
+- Document only Apple's System Settings → Privacy & Security → Open Anyway trust flow after checksum verification; do not recommend quarantine-removal commands.
+- Follow Semantic Versioning with shared app/CLI tags `vMAJOR.MINOR.PATCH`; protocol/database/archive schema versions evolve independently.
+- Use GitHub Actions with a protected manual-approval environment to publish the GitHub Release and tap update.
 
-Exact cask/archive layout, release-hosting automation, versioning, checksums, trust instructions, and update preflight mechanics remain release-engineering decisions.
+Artifact layout, release checks, trust instructions, and automation are defined by `.scratch/menu-bar-pomodoro/release-design.md`. Workflow implementation details remain task-local.
 
 ## Consequences
 

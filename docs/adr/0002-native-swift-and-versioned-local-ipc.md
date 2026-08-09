@@ -1,6 +1,6 @@
 # ADR-0002: Native Swift and Versioned Local IPC
 
-Status: Proposed
+Status: Accepted
 
 ## Context
 
@@ -15,6 +15,7 @@ The CLI and app may briefly differ in version during Homebrew upgrades or while 
 - Run as a menu-bar-only app during normal use. Settings and summary windows activate when requested without adding a second state owner.
 - Build the `pomo` executable in the same package and distribution.
 - Use Swift Argument Parser for commands, validation, help, and generated zsh, bash, and fish completions.
+- Implement interactive terminal behavior with a small internal ANSI/termios renderer behind testable terminal interfaces; do not add a broad TUI framework.
 - Enforce one Agent instance. Repeated launches reuse the existing Agent and forward the requested action.
 - Communicate through a same-user Unix domain socket under the OS-provided private per-user Darwin temporary directory, using an owner-only Pomo runtime subdirectory and peer validation where the platform permits it.
 - Use length-prefixed, explicitly versioned Codable JSON frames for finite requests/responses, state snapshots, errors, and streamed Agent events. Public `follow --json` output remains NDJSON.
@@ -24,8 +25,9 @@ The CLI and app may briefly differ in version during Homebrew upgrades or while 
 - Reject expired request IDs rather than applying them again. If a response is lost, allow the CLI to reconnect and retry only with the same request ID during the retry window.
 - Coalesce stale tick events for slow followers. If non-coalescible events exceed a bounded queue, send a terminal backpressure error when possible and disconnect that follower without blocking Agent mutations.
 - On startup, verify that no live owner/listener exists before removing an owner-owned stale socket endpoint.
+- Implement protocol v1 according to `.scratch/menu-bar-pomodoro/ipc-protocol.md` and its machine-readable schema.
 
-The exact runtime subpath, frame-size limit, protocol schema, compatibility policy between minor versions, and stale-socket recovery algorithm remain detailed-design decisions.
+Frame contents, version negotiation, runtime path, limits, retry behavior, follower buffering, and stale recovery are defined by the protocol contract. Swift type decomposition and socket implementation details remain implementation-local decisions.
 
 ## Consequences
 
@@ -41,7 +43,7 @@ The exact runtime subpath, frame-size limit, protocol schema, compatibility poli
 - The product must secure, clean up, and diagnose a filesystem socket.
 - Single-instance coordination and stale endpoints require careful startup sequencing.
 - A custom local protocol needs schema fixtures and compatibility tests.
-- Deduplication window duration and follower queue bounds remain explicit detailed-design constants with contract tests.
+- Protocol limits and compatibility rules become public contracts that require fixtures and compatibility tests.
 
 ## Alternatives considered
 

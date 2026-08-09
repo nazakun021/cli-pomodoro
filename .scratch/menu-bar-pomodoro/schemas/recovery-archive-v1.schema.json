@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pomo.local/schemas/recovery-archive-v1.schema.json",
+  "title": "Pomo recovery archive v1 JSON files",
+  "oneOf": [
+    { "$ref": "#/$defs/manifest" },
+    { "$ref": "#/$defs/data" }
+  ],
+  "$defs": {
+    "archive_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "size_bytes", "sha256"],
+      "properties": {
+        "path": { "enum": ["data.json", "pomo.sqlite", "pomo.sqlite-wal", "pomo.sqlite-shm"] },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file_type", "archive_version", "export_kind", "created_at", "app_version", "database_schema_version", "message", "files"],
+      "properties": {
+        "file_type": { "const": "manifest" },
+        "archive_version": { "const": 1 },
+        "export_kind": { "enum": ["known_schema_json", "opaque_database"] },
+        "created_at": { "type": "string", "format": "date-time" },
+        "app_version": { "type": "string", "minLength": 1 },
+        "database_schema_version": { "type": ["string", "null"] },
+        "message": { "type": "string", "minLength": 1 },
+        "files": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/archive_file" } }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "export_kind": { "const": "known_schema_json" },
+            "database_schema_version": { "type": "string" },
+            "files": {
+              "contains": {
+                "type": "object",
+                "required": ["path"],
+                "properties": { "path": { "const": "data.json" } }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "export_kind": { "const": "opaque_database" },
+            "files": {
+              "contains": {
+                "type": "object",
+                "required": ["path"],
+                "properties": { "path": { "const": "pomo.sqlite" } }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "preset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "focus_seconds", "short_break_seconds", "long_break_seconds", "long_break_every", "open_ended", "target_rounds", "auto_start_focus", "auto_start_breaks", "last_started_sequence", "created_at", "updated_at"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string", "minLength": 1 },
+        "focus_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "short_break_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "long_break_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "long_break_every": { "type": "integer", "minimum": 1 },
+        "open_ended": { "type": "boolean" },
+        "target_rounds": { "type": ["integer", "null"], "minimum": 1 },
+        "auto_start_focus": { "type": "boolean" },
+        "auto_start_breaks": { "type": "boolean" },
+        "last_started_sequence": { "type": ["integer", "null"], "minimum": 1 },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "focus_contribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "source_phase_id", "segment_index", "elapsed_milliseconds", "local_date", "timezone_identifier", "utc_offset_seconds", "completed_round", "finalized_at"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "source_phase_id": { "type": "string", "format": "uuid" },
+        "segment_index": { "type": "integer", "minimum": 0 },
+        "elapsed_milliseconds": { "type": "integer", "minimum": 1 },
+        "local_date": { "type": "string", "format": "date" },
+        "timezone_identifier": { "type": "string", "minLength": 1 },
+        "utc_offset_seconds": { "type": "integer", "minimum": -64800, "maximum": 64800 },
+        "completed_round": { "type": "boolean" },
+        "finalized_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file_type", "archive_version", "database_schema_version", "default_preset_id", "next_recency_sequence", "classic_last_started_sequence", "presets", "preferences", "focus_contributions"],
+      "properties": {
+        "file_type": { "const": "data" },
+        "archive_version": { "const": 1 },
+        "database_schema_version": { "const": "v1" },
+        "default_preset_id": { "type": "string", "format": "uuid" },
+        "next_recency_sequence": { "type": "integer", "minimum": 1 },
+        "classic_last_started_sequence": { "type": ["integer", "null"], "minimum": 1 },
+        "presets": { "type": "array", "items": { "$ref": "#/$defs/preset" } },
+        "preferences": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["notifications_enabled", "sound_enabled", "onboarding_completed", "launch_at_login_requested"],
+          "properties": {
+            "notifications_enabled": { "type": "boolean" },
+            "sound_enabled": { "type": "boolean" },
+            "onboarding_completed": { "type": "boolean" },
+            "launch_at_login_requested": { "type": "boolean" }
+          }
+        },
+        "focus_contributions": { "type": "array", "items": { "$ref": "#/$defs/focus_contribution" } }
+      }
+    }
+  }
+}

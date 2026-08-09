@@ -1,6 +1,6 @@
 # Pomo UI Behavior Contract
 
-Status: Planning
+Status: Ready for approval
 
 This document defines first-release information hierarchy and interaction behavior without prescribing final pixel layout. It does not authorize implementation.
 
@@ -28,7 +28,7 @@ Deleted Presets disappear from recents. The default is not repeated in recent en
 
 When Classic is not the default, it is eligible for recent Quick Start like any user Preset.
 
-Recency survives Agent restart and updates only after a Session start is successfully acknowledged, regardless of whether it originated from CLI, menu, or interactive setup.
+Recency survives Agent restart and updates when the Agent accepts a Session start, regardless of whether it originated from CLI, menu, or interactive setup. It may remain after a pre-acknowledgment Agent crash and does not claim that the Session survived.
 
 Custom Session opens a compact status-item popover. It supports Preset selection, one-Session overrides, finite/open-ended choice, Start Once, and Save as Preset.
 
@@ -81,3 +81,11 @@ The built-in Classic Preset is immutable and duplicable. User Preset names are c
 - Phase and Session state changes produce concise VoiceOver announcements without announcing every one-second tick.
 - Reduce Motion disables nonessential transitions.
 - State, validation, and destructive-action meaning never rely on color alone.
+
+## Recovery state
+
+- The status item uses a non-color warning symbol and concise VoiceOver announcement without opening a forced modal.
+- The menu shows the failure reason and only actions advertised by the Recovery descriptor: Retry, Export, Discard Session, and/or Reset Data.
+- Normal Session controls are unavailable while Recovery blocks mutation.
+- Discard Session confirms loss of pending uncommitted Focus only. Reset Data is visually and verbally distinct, requires stronger confirmation, and presents export-first guidance.
+- Successful accounting Retry applies the contribution once and moves to the already-determined next Phase state. Successful migration Retry returns the Agent to Idle.
