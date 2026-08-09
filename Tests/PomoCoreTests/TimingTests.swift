@@ -3,6 +3,20 @@ import PomoCore
 import XCTest
 
 final class TimingTests: XCTestCase {
+    func testFollowSnapshotsYieldsInitialAndStartedSession() async throws {
+        let agent = PomoAgentCore(productVersion: "0.1.0")
+        let stream = await agent.followSnapshots()
+        var iterator = stream.makeAsyncIterator()
+
+        let initial = await iterator.next()
+        _ = try await agent.startClassic()
+        let started = await iterator.next()
+
+        XCTAssertEqual(initial?.agentState, .idle)
+        XCTAssertEqual(started?.agentState, .session)
+        XCTAssertEqual(started?.sessionState, .running)
+    }
+
     func testRunningFocusUsesMonotonicTimeWhenWallClockChanges() async throws {
         let clock = TestClock()
         let agent = PomoAgentCore(productVersion: "0.1.0", clock: clock.clock)

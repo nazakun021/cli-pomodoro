@@ -24,3 +24,5 @@
 - `swift test` passed after the socket extension; touched Core and socket-test diagnostics are clean.
 - `swift test --filter IPCEnvelopeTests/testFollowTickEventUsesTheNextVisibleSequence` passed: tick events retain the current Agent state revision while advancing the caller-controlled visible sequence.
 - Full validation: `swift test` passed with 56 tests, 0 failures; touched-file diagnostics and `git diff --check` passed.
+- `swift test --filter TimingTests/testFollowSnapshotsYieldsInitialAndStartedSession` passed: Agent-owned subscriptions yield the current snapshot immediately and a serialized Session snapshot after Start.
+- Full validation after the subscription foundation passed; touched Core and timing-test diagnostics are clean.

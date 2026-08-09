@@ -1683,6 +1683,7 @@ public actor PomoAgentCore {
     private var revision: UInt64 = 0
     private var activeSession: ActiveSession?
     private var completedMutations: [UUID: CachedMutation] = [:]
+    private var snapshotFollowers: [UUID: AsyncStream<AgentSnapshot>.Continuation] = [:]
 
     public init(
         productVersion: String,
@@ -1722,6 +1723,17 @@ public actor PomoAgentCore {
         )
     }
 
+    public func followSnapshots() -> AsyncStream<AgentSnapshot> {
+        let followerID = UUID()
+        return AsyncStream { continuation in
+            snapshotFollowers[followerID] = continuation
+            continuation.yield(snapshot())
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.removeFollower(followerID) }
+            }
+        }
+    }
+
     public func startClassic() throws -> AgentSnapshot {
         try startClassic(
             requestID: UUID(), issuedAt: timestamp(clock.wallNow()),
@@ -1746,7 +1758,7 @@ public actor PomoAgentCore {
             remainingDuration: Double(configuration.focusSeconds),
             startedAt: clock.wallNow(), startedMonotonic: clock.monotonicNow())
         revision += 1
-        return snapshot()
+        return publish(snapshot())
     }
 
     public func start(presetID: UUID) throws -> AgentSnapshot {
@@ -1790,6 +1802,7 @@ public actor PomoAgentCore {
             startedAt: clock.wallNow(), startedMonotonic: clock.monotonicNow())
         revision += 1
         let result = snapshot()
+        publish(result)
         completedMutations[requestID] = CachedMutation(
             snapshot: result, completedAt: clock.wallNow())
         return result
@@ -1820,6 +1833,7 @@ public actor PomoAgentCore {
         self.activeSession = activeSession.paused(remainingDuration: remainingDuration)
         revision += 1
         let result = snapshot()
+        publish(result)
         completedMutations[requestID] = CachedMutation(
             snapshot: result, completedAt: clock.wallNow())
         return result
@@ -1861,7 +1875,7 @@ public actor PomoAgentCore {
 
         self.activeSession = activeSession.paused(remainingDuration: remainingDuration)
         revision += 1
-        return snapshot()
+        return publish(snapshot())
     }
 
     public func advanceIfDue() -> AgentSnapshot {
@@ -1873,7 +1887,7 @@ public actor PomoAgentCore {
         self.activeSession = activeSession.completed(
             wallTime: clock.wallNow(), monotonicTime: clock.monotonicNow())
         revision += 1
-        return snapshot()
+        return publish(snapshot())
     }
 
     public func skipPhase() throws -> AgentSnapshot {
@@ -1901,6 +1915,7 @@ public actor PomoAgentCore {
             wallTime: clock.wallNow(), monotonicTime: clock.monotonicNow())
         revision += 1
         let result = snapshot()
+        publish(result)
         completedMutations[requestID] = CachedMutation(
             snapshot: result, completedAt: clock.wallNow())
         return result
@@ -1926,6 +1941,7 @@ public actor PomoAgentCore {
         activeSession = nil
         revision += 1
         let result = snapshot()
+        publish(result)
         completedMutations[requestID] = CachedMutation(
             snapshot: result, completedAt: clock.wallNow())
         return result
@@ -1953,6 +1969,16 @@ public actor PomoAgentCore {
             now.timeIntervalSince($0.value.completedAt) <= Self.mutationRetryWindow
         }
         return completedMutations[requestID]?.snapshot
+    }
+
+    @discardableResult
+    private func publish(_ snapshot: AgentSnapshot) -> AgentSnapshot {
+        for continuation in snapshotFollowers.values { continuation.yield(snapshot) }
+        return snapshot
+    }
+
+    private func removeFollower(_ id: UUID) {
+        snapshotFollowers.removeValue(forKey: id)
     }
 
     fileprivate func handshakeInfo() -> AgentHandshakeInfo {
