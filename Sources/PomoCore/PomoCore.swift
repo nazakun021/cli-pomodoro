@@ -62,6 +62,95 @@ public final class AlertPreferencesStore: @unchecked Sendable {
     }
 }
 
+public struct FocusContribution: Codable, Equatable, Sendable {
+    public let phaseID: UUID
+    public let date: String
+    public let elapsedMilliseconds: Int64
+    public let completedRound: Bool
+
+    public init(
+        phaseID: UUID,
+        date: String,
+        elapsedMilliseconds: Int64,
+        completedRound: Bool
+    ) {
+        self.phaseID = phaseID
+        self.date = date
+        self.elapsedMilliseconds = max(0, elapsedMilliseconds)
+        self.completedRound = completedRound
+    }
+}
+
+public struct DailySummary: Codable, Equatable, Sendable {
+    public let focusMilliseconds: Int64
+    public let completedRounds: Int
+
+    public init(focusMilliseconds: Int64, completedRounds: Int) {
+        self.focusMilliseconds = focusMilliseconds
+        self.completedRounds = completedRounds
+    }
+}
+
+public enum SummaryStoreError: Error, Equatable, Sendable {
+    case invalidStorage
+}
+
+public final class SummaryStore: @unchecked Sendable {
+    private struct State: Codable {
+        var contributions: [FocusContribution]
+    }
+
+    private let fileURL: URL
+    private var state: State
+
+    public init(fileURL: URL) throws {
+        self.fileURL = fileURL
+        if !FileManager.default.fileExists(atPath: fileURL.path) {
+            state = State(contributions: [])
+        } else {
+            do {
+                let data = try Data(contentsOf: fileURL)
+                let decoded = try JSONDecoder().decode(State.self, from: data)
+                guard decoded.contributions.allSatisfy({
+                    !$0.date.isEmpty && $0.elapsedMilliseconds >= 0
+                }) else { throw SummaryStoreError.invalidStorage }
+                state = decoded
+            } catch let error as SummaryStoreError {
+                throw error
+            } catch {
+                throw SummaryStoreError.invalidStorage
+            }
+        }
+    }
+
+    public func record(_ contribution: FocusContribution) throws {
+        guard !state.contributions.contains(where: {
+            $0.phaseID == contribution.phaseID && $0.date == contribution.date
+        }) else {
+            return
+        }
+        state.contributions.append(contribution)
+        try persist()
+    }
+
+    public func summary(for date: String) -> DailySummary {
+        let matching = state.contributions.filter { $0.date == date }
+        return DailySummary(
+            focusMilliseconds: matching.reduce(0) { $0 + $1.elapsedMilliseconds },
+            completedRounds: matching.reduce(0) { $0 + ($1.completedRound ? 1 : 0) })
+    }
+
+    private func persist() throws {
+        do {
+            let data = try JSONEncoder().encode(state)
+            try data.write(to: fileURL, options: .atomic)
+            _ = chmod(fileURL.path, 0o600)
+        } catch {
+            throw SummaryStoreError.invalidStorage
+        }
+    }
+}
+
 public enum PresetStoreError: Error, Equatable, Sendable {
     case database
     case insecureStorage
