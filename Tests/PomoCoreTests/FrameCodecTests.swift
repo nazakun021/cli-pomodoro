@@ -11,7 +11,9 @@ final class FrameCodecTests: XCTestCase {
     }
 
     func testFrameRejectsOversizedPayload() {
-        XCTAssertThrowsError(try FrameCodec.encode(Data(repeating: 0, count: FrameCodec.maximumPayloadLength + 1))) { error in
+        XCTAssertThrowsError(
+            try FrameCodec.encode(Data(repeating: 0, count: FrameCodec.maximumPayloadLength + 1))
+        ) { error in
             XCTAssertEqual(error as? FrameCodecError, .oversizedPayload)
         }
     }

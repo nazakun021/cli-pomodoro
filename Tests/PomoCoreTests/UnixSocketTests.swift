@@ -23,7 +23,8 @@ final class UnixSocketTests: XCTestCase {
         let server = try LocalAgentServer(path: path, agent: PomoAgentCore(productVersion: "0.1.0"))
         defer { server.stop() }
 
-        XCTAssertThrowsError(try LocalAgentServer(path: path, agent: PomoAgentCore(productVersion: "0.1.0")))
+        XCTAssertThrowsError(
+            try LocalAgentServer(path: path, agent: PomoAgentCore(productVersion: "0.1.0")))
     }
 
     func testClientWithDifferentMajorIsRejectedBeforeStatus() async throws {
