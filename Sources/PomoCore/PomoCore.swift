@@ -1919,6 +1919,14 @@ private func currentUTCTimestamp() -> String {
     return formatter.string(from: Date())
 }
 
+private func localDateString(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar.current
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter.string(from: date)
+}
+
 public struct AgentClock: Sendable {
     public let monotonicNow: @Sendable () -> TimeInterval
     public let wallNow: @Sendable () -> Date
@@ -1944,6 +1952,7 @@ public actor PomoAgentCore {
     private let productVersion: String
     private let clock: AgentClock
     private let presetStore: PresetStore?
+    private let summaryStore: SummaryStore?
     private var revision: UInt64 = 0
     private var activeSession: ActiveSession?
     private var completedMutations: [UUID: CachedMutation] = [:]
@@ -1952,11 +1961,13 @@ public actor PomoAgentCore {
     public init(
         productVersion: String,
         clock: AgentClock = .system,
-        presetStore: PresetStore? = nil
+        presetStore: PresetStore? = nil,
+        summaryStore: SummaryStore? = nil
     ) {
         self.productVersion = productVersion
         self.clock = clock
         self.presetStore = presetStore
+        self.summaryStore = summaryStore
         agentInstanceID = UUID()
     }
 
@@ -1995,6 +2006,10 @@ public actor PomoAgentCore {
             defaultPreset: presetStore.defaultPreset(),
             recentPresets: presetStore.recentPresets(),
             presets: presetStore.presets())
+    }
+
+    public func dailySummary(for date: String) -> DailySummary {
+        summaryStore?.summary(for: date) ?? DailySummary(focusMilliseconds: 0, completedRounds: 0)
     }
 
     public func followSnapshots() -> AsyncStream<AgentSnapshot> {
@@ -2159,6 +2174,14 @@ public actor PomoAgentCore {
             return snapshot()
         }
 
+        if activeSession.phaseType == .focus {
+            let contribution = FocusContribution(
+                phaseID: activeSession.phaseID,
+                date: localDateString(clock.wallNow()),
+                elapsedMilliseconds: Int64(activeSession.duration) * 1_000,
+                completedRound: true)
+            try? summaryStore?.record(contribution)
+        }
         self.activeSession = activeSession.completed(
             wallTime: clock.wallNow(), monotonicTime: clock.monotonicNow())
         revision += 1

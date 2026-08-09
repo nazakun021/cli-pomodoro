@@ -16,7 +16,14 @@ struct PomoAgent {
         else {
             return
         }
-        let agent = PomoAgentCore(productVersion: "0.1.0", presetStore: presetStore)
+        let summaryURL = applicationSupportDirectory
+            .appendingPathComponent("Pomo", isDirectory: true)
+            .appendingPathComponent("summary.json")
+        guard let summaryStore = try? SummaryStore(fileURL: summaryURL) else {
+            return
+        }
+        let agent = PomoAgentCore(
+            productVersion: "0.1.0", presetStore: presetStore, summaryStore: summaryStore)
         guard let socketPath = try? RuntimeEndpoint.prepare(),
             let server = try? LocalAgentServer(path: socketPath, agent: agent)
         else {
