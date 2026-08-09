@@ -4,6 +4,25 @@ import PomoCore
 import XCTest
 
 final class UnixSocketTests: XCTestCase {
+    func testPresetDiscoveryReturnsDefaultAndNamedPresets() async throws {
+        let databaseURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-presets-\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: databaseURL) }
+        let store = try PresetStore(databaseURL: databaseURL)
+        let writing = try store.create(name: "Writing", configuration: .classic)
+        try store.selectDefault(id: writing.id)
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path
+        let server = try LocalAgentServer(
+            path: path, agent: PomoAgentCore(productVersion: "0.1.0", presetStore: store))
+        defer { server.stop() }
+
+        let discovery = try await LocalAgentClient(path: path).presetDiscovery()
+
+        XCTAssertEqual(discovery.defaultPreset, writing)
+        XCTAssertEqual(discovery.presets, [.classic, writing])
+    }
+
     func testFollowReceivesInitialSnapshotEventAfterAcknowledgement() async throws {
         let path = FileManager.default.temporaryDirectory
             .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path

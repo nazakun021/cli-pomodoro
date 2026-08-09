@@ -20,12 +20,12 @@ Observed result: Manual macOS screenshots verified Preset editing/default select
 
 Resolved: Ticket 06 manual UI/VoiceOver evidence is complete.
 
-## Blocked: Ticket 07 — Configure Sessions through the terminal wizard
+## Resolved: Ticket 07 Preset Discovery Blocker
 
 Date: 2026-08-10
 
 Attempted: Implemented TTY-gated plain Classic setup with validated overrides, review, and explicit active-Session replacement confirmation. Builds and 53 automated tests pass.
 
-Observed result: The Agent IPC protocol cannot list or resolve the default, recent, and named Presets for the terminal wizard. The response model carries only Agent snapshots. Direct CLI database access would break the Agent-owned storage boundary.
+Observed result: Implemented the Agent-owned read-only `presets` IPC command and versioned discovery response. A real-socket test verifies the default and named Presets return without direct CLI database access.
 
-Needed: Approve an Agent-owned Preset discovery IPC command and versioned response shape, then add socket and CLI coverage before resuming ticket 07.
+Resolved: Ticket 07 can resume its terminal Preset-selection implementation.

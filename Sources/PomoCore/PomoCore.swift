@@ -4,7 +4,7 @@ import SQLite3
 
 private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
-public struct Preset: Equatable, Sendable {
+public struct Preset: Codable, Equatable, Sendable {
     public static let classicID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
 
     public let id: UUID
@@ -896,6 +896,7 @@ public struct IPCResponse: Codable, Equatable, Sendable {
     public let ok: Bool
     public let stateRevision: UInt64
     public let result: AgentSnapshot?
+    public let presetDiscovery: PresetDiscovery?
     public let error: PublicError?
 
     public init(
@@ -910,6 +911,23 @@ public struct IPCResponse: Codable, Equatable, Sendable {
         ok = true
         self.stateRevision = stateRevision
         self.result = result
+        presetDiscovery = nil
+        error = nil
+    }
+
+    public init(
+        protocolVersion: ProtocolVersion,
+        requestID: UUID,
+        stateRevision: UInt64,
+        presetDiscovery: PresetDiscovery
+    ) {
+        messageType = "response"
+        self.protocolVersion = protocolVersion
+        self.requestID = requestID
+        ok = true
+        self.stateRevision = stateRevision
+        result = nil
+        self.presetDiscovery = presetDiscovery
         error = nil
     }
 
@@ -925,6 +943,7 @@ public struct IPCResponse: Codable, Equatable, Sendable {
         ok = false
         self.stateRevision = stateRevision
         result = nil
+        presetDiscovery = nil
         self.error = error
     }
 
@@ -935,6 +954,7 @@ public struct IPCResponse: Codable, Equatable, Sendable {
         case ok
         case stateRevision = "state_revision"
         case result
+        case presetDiscovery = "preset_discovery"
         case error
     }
 
@@ -947,9 +967,17 @@ public struct IPCResponse: Codable, Equatable, Sendable {
         try container.encode(stateRevision, forKey: .stateRevision)
         try container.encodeIfPresent(result, forKey: .result)
         if result == nil { try container.encodeNil(forKey: .result) }
+        try container.encodeIfPresent(presetDiscovery, forKey: .presetDiscovery)
+        if presetDiscovery == nil { try container.encodeNil(forKey: .presetDiscovery) }
         try container.encodeIfPresent(error, forKey: .error)
         if error == nil { try container.encodeNil(forKey: .error) }
     }
+}
+
+public struct PresetDiscovery: Codable, Equatable, Sendable {
+    public let defaultPreset: Preset
+    public let recentPresets: [Preset]
+    public let presets: [Preset]
 }
 
 public enum FollowEventKind: String, Codable, Sendable {
@@ -1146,6 +1174,18 @@ public final class LocalAgentServer: @unchecked Sendable {
                 request.messageType == "request",
                 request.protocolVersion == negotiation.version
             else { return }
+            if request.command.name == "presets" {
+                guard request.command == IPCCommand(name: "presets") else { return }
+                guard let discovery = try? await agent.presetDiscovery() else { return }
+                _ = Self.writeJSON(
+                    IPCResponse(
+                        protocolVersion: negotiation.version,
+                        requestID: request.requestID,
+                        stateRevision: (await agent.snapshot()).revision,
+                        presetDiscovery: discovery),
+                    to: client)
+                return
+            }
             let response: IPCResponse
             do {
                 let snapshot: AgentSnapshot
@@ -1222,9 +1262,10 @@ public final class LocalAgentServer: @unchecked Sendable {
                 var sequence: UInt64 = 0
                 while let snapshot = await iterator.next() {
                     sequence += 1
-                    guard Self.writeJSON(
-                        FollowEvent(sequence: sequence, kind: .transition, snapshot: snapshot),
-                        to: client)
+                    guard
+                        Self.writeJSON(
+                            FollowEvent(sequence: sequence, kind: .transition, snapshot: snapshot),
+                            to: client)
                     else { return }
                 }
             }
@@ -1412,6 +1453,14 @@ public struct LocalAgentClient: Sendable {
 
     public func skip() async throws -> PublicResponse {
         try await mutationResponse(command: "skip")
+    }
+
+    public func presetDiscovery() async throws -> PresetDiscovery {
+        let result = try await commandResponse(command: "presets", requestID: UUID())
+        guard result.response.ok, let discovery = result.response.presetDiscovery else {
+            throw LocalAgentTransportError.invalidResponse
+        }
+        return discovery
     }
 
     public func followInitialEvent() async throws -> FollowEvent {
@@ -1737,6 +1786,16 @@ public actor PomoAgentCore {
         )
     }
 
+    public func presetDiscovery() throws -> PresetDiscovery {
+        guard let presetStore else {
+            return PresetDiscovery(defaultPreset: .classic, recentPresets: [], presets: [.classic])
+        }
+        return try PresetDiscovery(
+            defaultPreset: presetStore.defaultPreset(),
+            recentPresets: presetStore.recentPresets(),
+            presets: presetStore.presets())
+    }
+
     public func followSnapshots() -> AsyncStream<AgentSnapshot> {
         let followerID = UUID()
         return AsyncStream { continuation in
@@ -1877,6 +1936,7 @@ public actor PomoAgentCore {
             from: clock.wallNow(), monotonicTime: clock.monotonicNow())
         revision += 1
         let result = snapshot()
+        publish(result)
         completedMutations[requestID] = CachedMutation(
             snapshot: result, completedAt: clock.wallNow())
         return result
