@@ -26,3 +26,6 @@
 - `swift run PomoAgent`, `swift run pomo start --json`, then `swift run pomo status --json` demonstrated the same Agent-owned Running Focus Session after the Start CLI invocation exited.
 - `swift test --filter ClassicSessionTests` passed: explicit Stop clears the active Session, returns Idle, and advances the state revision from 1 to 2.
 - `swift test` passed after Stop core work: 17 tests, 0 failures.
+- `swift test --filter IPCEnvelopeTests` passed: IPC Stop returns Idle and a later Status observes revision 2.
+- `swift run PomoAgent`, `pomo start --json`, `pomo stop --json`, and `pomo status --json` demonstrated a direct CLI Stop with no prompt and the expected Idle result.
+- `swift test` passed after IPC/CLI Stop: 18 tests, 0 failures; `swift build` passed without diagnostics.

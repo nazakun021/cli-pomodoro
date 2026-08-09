@@ -608,6 +608,11 @@ public final class LocalAgentServer: @unchecked Sendable {
                     let started = try? await agent.startClassic()
                 else { return }
                 snapshot = started
+            case "stop":
+                guard request.command == IPCCommand(name: "stop"),
+                    let stopped = try? await agent.stopSession()
+                else { return }
+                snapshot = stopped
             default:
                 return
             }
@@ -756,12 +761,22 @@ public struct LocalAgentClient: Sendable {
         return PublicResponse.success(command: "start", snapshot: snapshot)
     }
 
+    public func stop() async throws -> PublicResponse {
+        let response = try await stopResponse(requestID: UUID())
+        guard let snapshot = response.result else { throw LocalAgentTransportError.invalidResponse }
+        return PublicResponse.success(command: "stop", snapshot: snapshot)
+    }
+
     public func statusResponse(requestID: UUID) async throws -> IPCResponse {
         try await commandResponse(command: "status", requestID: requestID)
     }
 
     public func startClassicResponse(requestID: UUID) async throws -> IPCResponse {
         try await commandResponse(command: "start", requestID: requestID)
+    }
+
+    public func stopResponse(requestID: UUID) async throws -> IPCResponse {
+        try await commandResponse(command: "stop", requestID: requestID)
     }
 
     private func commandResponse(command: String, requestID: UUID) async throws -> IPCResponse {

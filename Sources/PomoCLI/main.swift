@@ -8,8 +8,8 @@ struct PomoCLI {
         let json = arguments.contains("--json")
         let command = arguments.first(where: { !$0.hasPrefix("-") })
 
-        guard command == "status" || command == "start" else {
-            FileHandle.standardError.write(Data("Usage: pomo <status|start> [--json]\n".utf8))
+        guard command == "status" || command == "start" || command == "stop" else {
+            FileHandle.standardError.write(Data("Usage: pomo <status|start|stop> [--json]\n".utf8))
             Foundation.exit(2)
         }
 
@@ -38,7 +38,15 @@ struct PomoCLI {
         switch command {
         case "start":
             return (try? await client.startClassic())
-                ?? .failure(PublicError(code: "agent_unavailable", message: "Pomo Agent is unavailable.", exitCode: 4))
+                ?? .failure(
+                    PublicError(
+                        code: "agent_unavailable", message: "Pomo Agent is unavailable.",
+                        exitCode: 4))
+        case "stop":
+            return (try? await client.stop())
+                ?? .failure(
+                    PublicError(
+                        code: "invalid_state", message: "No active Session to stop.", exitCode: 3))
         default:
             return (try? await client.status()) ?? .agentNotRunning()
         }

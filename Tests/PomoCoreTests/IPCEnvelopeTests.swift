@@ -34,4 +34,20 @@ final class IPCEnvelopeTests: XCTestCase {
         XCTAssertEqual(observed.result?.sessionID, started.result?.sessionID)
         XCTAssertEqual(observed.result?.revision, started.result?.revision)
     }
+
+    func testStopEndsSessionAndLaterStatusIsIdle() async throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path
+        let server = try LocalAgentServer(path: path, agent: PomoAgentCore(productVersion: "0.1.0"))
+        defer { server.stop() }
+        let client = LocalAgentClient(path: path)
+        _ = try await client.startClassicResponse(requestID: UUID())
+
+        let stopped = try await client.stopResponse(requestID: UUID())
+        let observed = try await client.statusResponse(requestID: UUID())
+
+        XCTAssertEqual(stopped.result?.agentState, .idle)
+        XCTAssertEqual(observed.result?.agentState, .idle)
+        XCTAssertEqual(observed.result?.revision, 2)
+    }
 }
