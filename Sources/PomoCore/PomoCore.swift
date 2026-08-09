@@ -27,6 +27,48 @@ public enum SessionConfigurationError: Error, Equatable, Sendable {
     case invalidBoundary
 }
 
+public enum DurationParserError: Error, Equatable, Sendable {
+    case invalidDuration
+}
+
+public enum DurationParser {
+    public static func parse(_ value: String) throws -> Int {
+        guard !value.isEmpty else { throw DurationParserError.invalidDuration }
+        var index = value.startIndex
+        var total = 0
+
+        while index < value.endIndex {
+            let numberStart = index
+            while index < value.endIndex, value[index].isNumber {
+                index = value.index(after: index)
+            }
+            guard numberStart != index,
+                let amount = Int(value[numberStart..<index]),
+                amount > 0,
+                index < value.endIndex
+            else { throw DurationParserError.invalidDuration }
+
+            let multiplier: Int
+            switch value[index] {
+            case "s": multiplier = 1
+            case "m": multiplier = 60
+            case "h": multiplier = 3_600
+            default: throw DurationParserError.invalidDuration
+            }
+            guard amount <= 86_400 / multiplier,
+                total <= 86_400 - amount * multiplier
+            else { throw DurationParserError.invalidDuration }
+            total += amount * multiplier
+            index = value.index(after: index)
+        }
+
+        guard (1...86_400).contains(total) else {
+            throw DurationParserError.invalidDuration
+        }
+        return total
+    }
+}
+
 public struct SessionConfiguration: Codable, Equatable, Sendable {
     public let focusSeconds: Int
     public let shortBreakSeconds: Int
@@ -875,6 +917,22 @@ public struct LocalAgentClient: Sendable {
                         code: "invalid_response", message: "Invalid Agent response.", exitCode: 1),
                 command: "start"
             )
+        }
+        return PublicResponse.success(command: "start", snapshot: snapshot)
+    }
+
+    public func start(
+        configuration: SessionConfiguration,
+        replace: Bool = false
+    ) async throws -> PublicResponse {
+        let response = try await startResponse(
+            requestID: UUID(), configuration: configuration, replace: replace)
+        guard response.ok, let snapshot = response.result else {
+            return .failure(
+                response.error
+                    ?? PublicError(
+                        code: "invalid_response", message: "Invalid Agent response.", exitCode: 1),
+                command: "start")
         }
         return PublicResponse.success(command: "start", snapshot: snapshot)
     }

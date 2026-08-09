@@ -31,3 +31,5 @@
 - `swift test` passed: 39 tests, 0 failures; `swift build` passed after adding generic validated-Configuration Session start.
 - `swift test --filter IPCEnvelopeTests/testStartWithConfigurationCreatesOpenEndedSession` passed: a complete open-ended Configuration traverses the IPC Start request and is returned in the Agent snapshot.
 - `swift test` passed: 40 tests, 0 failures; `swift build` passed after adding optional Configuration to IPC Start requests.
+- `swift test --filter DurationParserTests` passed: Start durations accept composable integer units and reject malformed or excessive values.
+- `swift test` passed: 42 tests, 0 failures; `swift build` passed after resolving positional and named duration, boundary, cadence, and auto-start options into validated Start Configurations before IPC.

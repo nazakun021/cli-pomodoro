@@ -8,6 +8,17 @@ struct PomoCLI {
         let json = arguments.contains("--json")
         let replace = arguments.contains("--replace")
         let command = arguments.first(where: { !$0.hasPrefix("-") })
+        let startConfiguration: SessionConfiguration?
+
+        if command == "start" {
+            do { startConfiguration = try parseStartConfiguration(arguments) }
+            catch {
+                FileHandle.standardError.write(Data("Invalid start options.\n".utf8))
+                Foundation.exit(2)
+            }
+        } else {
+            startConfiguration = nil
+        }
 
         guard
             command == "status" || command == "start" || command == "stop"
@@ -21,7 +32,8 @@ struct PomoCLI {
             Foundation.exit(2)
         }
 
-        let response = await commandResponse(command: command!, replace: replace)
+        let response = await commandResponse(
+            command: command!, replace: replace, configuration: startConfiguration)
         if json {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
@@ -46,11 +58,21 @@ struct PomoCLI {
         }
     }
 
-    private static func commandResponse(command: String, replace: Bool) async -> PublicResponse {
+    private static func commandResponse(
+        command: String,
+        replace: Bool,
+        configuration: SessionConfiguration?
+    ) async -> PublicResponse {
         let client = LocalAgentClient(path: RuntimeEndpoint.socketPath())
         switch command {
         case "start":
-            return (try? await client.startClassic(replace: replace))
+            let response: PublicResponse?
+            if let configuration {
+                response = try? await client.start(configuration: configuration, replace: replace)
+            } else {
+                response = try? await client.startClassic(replace: replace)
+            }
+            return response
                 ?? .failure(
                     PublicError(
                         code: "agent_unavailable", message: "Pomo Agent is unavailable.",
@@ -85,5 +107,60 @@ struct PomoCLI {
         default:
             return (try? await client.status()) ?? .agentNotRunning()
         }
+    }
+
+    private static func parseStartConfiguration(_ arguments: [String]) throws -> SessionConfiguration? {
+        let startIndex = arguments.firstIndex(of: "start")!
+        let values = Array(arguments.dropFirst(startIndex + 1))
+        var focus: Int?
+        var shortBreak: Int?
+        var longBreak: Int?
+        var rounds: Int?
+        var openEnded = false
+        var cadence: Int?
+        var autoFocus: Bool?
+        var autoBreaks: Bool?
+        var positional: String?
+        var index = 0
+
+        while index < values.count {
+            let value = values[index]
+            if value == "--replace" || value == "--json" { index += 1; continue }
+            if value == "--open-ended" { openEnded = true; index += 1; continue }
+            if value == "--auto-start-focus" { autoFocus = true; index += 1; continue }
+            if value == "--no-auto-start-focus" { autoFocus = false; index += 1; continue }
+            if value == "--auto-start-breaks" { autoBreaks = true; index += 1; continue }
+            if value == "--no-auto-start-breaks" { autoBreaks = false; index += 1; continue }
+            guard index + 1 < values.count else { throw DurationParserError.invalidDuration }
+            let next = values[index + 1]
+            switch value {
+            case "--focus": focus = try DurationParser.parse(next)
+            case "--short-break": shortBreak = try DurationParser.parse(next)
+            case "--long-break": longBreak = try DurationParser.parse(next)
+            case "--rounds": rounds = Int(next)
+            case "--long-break-every": cadence = Int(next)
+            default:
+                guard positional == nil else { throw DurationParserError.invalidDuration }
+                positional = value
+                index += 1
+                continue
+            }
+            index += 2
+        }
+
+        guard positional == nil || focus == nil else { throw DurationParserError.invalidDuration }
+        if let positional { focus = try DurationParser.parse(positional) }
+        guard !openEnded || rounds == nil else { throw DurationParserError.invalidDuration }
+        guard focus != nil || shortBreak != nil || longBreak != nil || rounds != nil || openEnded || cadence != nil || autoFocus != nil || autoBreaks != nil else { return nil }
+        let classic = SessionConfiguration.classic
+        return try SessionConfiguration(
+            focusSeconds: focus ?? classic.focusSeconds,
+            shortBreakSeconds: shortBreak ?? classic.shortBreakSeconds,
+            longBreakSeconds: longBreak ?? classic.longBreakSeconds,
+            longBreakEvery: cadence ?? classic.longBreakEvery,
+            openEnded: openEnded,
+            targetRounds: openEnded ? nil : (rounds ?? classic.targetRounds),
+            autoStartFocus: autoFocus ?? classic.autoStartFocus,
+            autoStartBreaks: autoBreaks ?? classic.autoStartBreaks)
     }
 }
