@@ -15,4 +15,15 @@ final class ClassicSessionTests: XCTestCase {
         XCTAssertEqual(snapshot.remainingSeconds, 1_500)
         XCTAssertEqual(snapshot.revision, 1)
     }
+
+    func testStopClassicEndsTheSessionAndReturnsIdle() async throws {
+        let agent = PomoAgentCore(productVersion: "0.1.0")
+        _ = try await agent.startClassic()
+
+        let snapshot = try await agent.stopSession()
+
+        XCTAssertEqual(snapshot.agentState, .idle)
+        XCTAssertNil(snapshot.sessionID)
+        XCTAssertEqual(snapshot.revision, 2)
+    }
 }

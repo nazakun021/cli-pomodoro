@@ -943,6 +943,13 @@ public actor PomoAgentCore {
         return snapshot()
     }
 
+    public func stopSession() throws -> AgentSnapshot {
+        guard activeSession != nil else { throw AgentCommandError.noActiveSession }
+        activeSession = nil
+        revision += 1
+        return snapshot()
+    }
+
     fileprivate func handshakeInfo() -> AgentHandshakeInfo {
         AgentHandshakeInfo(
             productVersion: productVersion,
@@ -956,6 +963,7 @@ public actor PomoAgentCore {
 
 public enum AgentCommandError: Error, Equatable, Sendable {
     case sessionAlreadyActive
+    case noActiveSession
 }
 
 private struct ActiveSession: Sendable {
