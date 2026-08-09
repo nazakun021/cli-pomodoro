@@ -13,7 +13,7 @@ struct PomoAgent {
         else {
             return
         }
-        let statusItem = IdleStatusItem(server: server)
+        let statusItem = IdleStatusItem(agent: agent, server: server)
         withExtendedLifetime(statusItem) {
             application.run()
         }
@@ -22,23 +22,82 @@ struct PomoAgent {
 
 @MainActor
 private final class IdleStatusItem: NSObject {
+    private let agent: PomoAgentCore
     private let server: LocalAgentServer
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    private var refreshTimer: Timer?
 
-    init(server: LocalAgentServer) {
+    init(agent: PomoAgentCore, server: LocalAgentServer) {
+        self.agent = agent
         self.server = server
         super.init()
-        item.button?.image = NSImage(
-            systemSymbolName: "timer", accessibilityDescription: "Pomo Idle")
+        refresh()
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refresh()
+            }
+        }
+    }
+
+    private func refresh() {
+        Task { [weak self] in
+            guard let self else { return }
+            let snapshot = await agent.snapshot()
+            rebuildMenu(for: snapshot)
+        }
+    }
+
+    private func rebuildMenu(for snapshot: AgentSnapshot) {
         let menu = NSMenu()
-        menu.addItem(withTitle: "No Session", action: nil, keyEquivalent: "")
+        if snapshot.agentState == .session {
+            item.button?.image = NSImage(
+                systemSymbolName: "timer", accessibilityDescription: "Pomo Focus Running")
+            item.button?.title = "25:00"
+            menu.addItem(withTitle: "Focus - Running", action: nil, keyEquivalent: "")
+            menu.addItem(withTitle: "Round 1 of 4", action: nil, keyEquivalent: "")
+            menu.addItem(.separator())
+            let pause = menu.addItem(withTitle: "Pause", action: nil, keyEquivalent: "")
+            pause.isEnabled = false
+            let skip = menu.addItem(withTitle: "Skip", action: nil, keyEquivalent: "")
+            skip.isEnabled = false
+            menu.addItem(withTitle: "Stop Session", action: #selector(confirmStop), keyEquivalent: "")
+            menu.items.last?.target = self
+        } else {
+            item.button?.title = ""
+            item.button?.image = NSImage(
+                systemSymbolName: "timer", accessibilityDescription: "Pomo Idle")
+            menu.addItem(withTitle: "No Session", action: nil, keyEquivalent: "")
+            menu.addItem(withTitle: "Start Classic", action: #selector(startClassic), keyEquivalent: "")
+            menu.items.last?.target = self
+        }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Pomo", action: #selector(quit), keyEquivalent: "q")
         menu.items.last?.target = self
         item.menu = menu
     }
 
+    @objc private func startClassic() {
+        Task { [agent] in
+            _ = try? await agent.startClassic()
+            refresh()
+        }
+    }
+
+    @objc private func confirmStop() {
+        let alert = NSAlert()
+        alert.messageText = "Stop Session?"
+        alert.informativeText = "Stopping now ends this Focus Phase."
+        alert.addButton(withTitle: "Stop Session")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        Task { [agent] in
+            _ = try? await agent.stopSession()
+            refresh()
+        }
+    }
+
     @objc private func quit() {
+        refreshTimer?.invalidate()
         server.stop()
         NSApp.terminate(nil)
     }
