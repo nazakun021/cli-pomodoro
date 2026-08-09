@@ -2299,12 +2299,44 @@ public actor PomoAgentCore {
         completedRound: Bool
     ) {
         guard elapsedMilliseconds > 0 else { return }
-        let contribution = FocusContribution(
-            phaseID: session.phaseID,
-            date: localDateString(clock.wallNow()),
-            elapsedMilliseconds: elapsedMilliseconds,
-            completedRound: completedRound)
-        try? summaryStore?.record(contribution)
+        guard let summaryStore else { return }
+        let end = clock.wallNow()
+        let start = session.startedAt ?? end.addingTimeInterval(
+            -Double(elapsedMilliseconds) / 1_000)
+        if end < start {
+            try? summaryStore.record(FocusContribution(
+                phaseID: session.phaseID,
+                date: localDateString(end),
+                elapsedMilliseconds: elapsedMilliseconds,
+                completedRound: completedRound))
+            return
+        }
+        let calendar = Calendar.current
+        var cursor = start
+        var remaining = elapsedMilliseconds
+        while remaining > 0 {
+            let dayEnd = calendar.date(
+                byAdding: .day, value: 1, to: calendar.startOfDay(for: cursor)) ?? end
+            let segmentEnd = min(end, dayEnd)
+            let segmentMilliseconds: Int64
+            if segmentEnd >= end {
+                segmentMilliseconds = remaining
+            } else {
+                segmentMilliseconds = min(
+                    remaining,
+                    max(0, Int64(((segmentEnd.timeIntervalSince(cursor)) * 1_000).rounded(.down))))
+            }
+            if segmentMilliseconds > 0 {
+                try? summaryStore.record(FocusContribution(
+                    phaseID: session.phaseID,
+                    date: localDateString(cursor),
+                    elapsedMilliseconds: segmentMilliseconds,
+                    completedRound: completedRound && segmentMilliseconds == remaining))
+                remaining -= segmentMilliseconds
+            }
+            guard segmentEnd > cursor else { break }
+            cursor = segmentEnd
+        }
     }
 
     fileprivate func handshakeInfo() -> AgentHandshakeInfo {
