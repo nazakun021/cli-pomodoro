@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Start and stop a Classic Focus Session
 
-**Status:** claimed
+**Status:** blocked
 
 - [ ] Presets Settings lists Classic and user Presets and supports create, duplicate, edit, delete, and default selection with complete Configuration fields.
 - [ ] User Preset names are unique under locale-independent case-insensitive comparison, and validation preserves pending form values.
@@ -32,3 +32,4 @@
 ## Comments
 
 - The durable repository, default-resolution, owner-only Agent-startup, recency coupling, and native Settings UI are complete. Ticket remains claimed for the XCUITest/manual keyboard and VoiceOver verification pass.
+- Blocked on 2026-08-10: native keyboard, confirmation-dialog, and VoiceOver verification cannot be performed in the current environment. Ticket 06 remains blocked by this evidence requirement.
