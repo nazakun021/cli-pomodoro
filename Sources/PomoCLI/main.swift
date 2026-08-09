@@ -101,19 +101,20 @@ struct PomoCLI {
     }
 
     private static func runPlainSetup() async {
-        var focus = "25m"
-        var shortBreak = "5m"
-        var longBreak = "15m"
-        var cadence = "4"
-        var rounds = "4"
-        var openEnded = false
-        var autoStartFocus = false
-        var autoStartBreaks = true
+        let preset = await selectPreset() ?? .classic
+        var focus = "\(preset.configuration.focusSeconds)s"
+        var shortBreak = "\(preset.configuration.shortBreakSeconds)s"
+        var longBreak = "\(preset.configuration.longBreakSeconds)s"
+        var cadence = "\(preset.configuration.longBreakEvery)"
+        var rounds = preset.configuration.targetRounds.map(String.init) ?? ""
+        var openEnded = preset.configuration.openEnded
+        var autoStartFocus = preset.configuration.autoStartFocus
+        var autoStartBreaks = preset.configuration.autoStartBreaks
 
         let configuration: SessionConfiguration
         while true {
             print("Pomo setup")
-            print("Preset: Classic (customize values below; press Enter to keep a value)")
+            print("Preset: \(preset.name) (customize values below; press Enter to keep a value)")
             focus = prompt("Focus duration", current: focus)
             shortBreak = prompt("Short Break duration", current: shortBreak)
             longBreak = prompt("Long Break duration", current: longBreak)
@@ -138,7 +139,7 @@ struct PomoCLI {
         }
 
         print("Pomo setup")
-        print("Review: Classic with one-session overrides")
+        print("Review: \(preset.name) with one-session overrides")
         print(
             "Focus: \(configuration.focusSeconds)s | Short Break: \(configuration.shortBreakSeconds)s | Long Break: \(configuration.longBreakSeconds)s"
         )
@@ -168,6 +169,28 @@ struct PomoCLI {
         if !response.ok {
             Foundation.exit(Int32(response.error?.exitCode ?? 1))
         }
+    }
+
+    private static func selectPreset() async -> Preset? {
+        guard let discovery = try? await LocalAgentClient(path: RuntimeEndpoint.socketPath())
+            .presetDiscovery()
+        else { return .classic }
+        var choices = [discovery.defaultPreset] + discovery.recentPresets
+        choices += discovery.presets.filter { preset in
+            !choices.contains(where: { $0.id == preset.id })
+        }
+        print("Choose a Preset:")
+        for (index, preset) in choices.enumerated() {
+            let marker = preset.id == discovery.defaultPreset.id ? " (default)" : ""
+            print("\(index + 1). \(preset.name)\(marker)")
+        }
+        print("Preset [1]", terminator: " ")
+        guard let input = readLine(), !input.isEmpty else { return choices.first }
+        guard let index = Int(input), choices.indices.contains(index - 1) else {
+            print("Invalid Preset selection. Using the default.")
+            return choices.first
+        }
+        return choices[index - 1]
     }
 
     private static func prompt(_ label: String, current: String) -> String {

@@ -29,6 +29,8 @@
 - Validation: `swift build` passed after the replacement gate; `swift test` passed with 53 tests, 0 failures; diagnostics and `git diff --check` passed.
 - `swift test --filter UnixSocketTests/testPresetDiscoveryReturnsDefaultAndNamedPresets` passed: the Agent-owned read-only `presets` IPC command returns default and named Presets without CLI database access.
 - Preset discovery is now available to the terminal wizard; implement the selection prompts next.
+- Plain setup now presents default, recent, and remaining named Presets from Agent discovery. The selected Preset supplies the editable values and is named again in Review.
+- Validation: `swift build` and `swift test` passed; CLI diagnostics and `git diff --check` are clean.
 
 ## Comments
 
