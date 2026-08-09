@@ -1,8 +1,8 @@
 import AppKit
 import PomoCore
 
-@main
 struct PomoAgent {
+    @MainActor
     static func main() {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
@@ -22,24 +22,29 @@ struct PomoAgent {
         else {
             return
         }
-        let statusItem = IdleStatusItem(agent: agent, server: server)
+        let statusItem = IdleStatusItem(agent: agent, server: server, presetStore: presetStore)
         withExtendedLifetime(statusItem) {
             application.run()
         }
     }
 }
 
+PomoAgent.main()
+
 @MainActor
 private final class IdleStatusItem: NSObject {
     private let agent: PomoAgentCore
     private let server: LocalAgentServer
+    private let presetStore: PresetStore
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var refreshTimer: Timer?
     private var sleepObserver: NSObjectProtocol?
+    private var settingsWindow: PresetSettingsWindowController?
 
-    init(agent: PomoAgentCore, server: LocalAgentServer) {
+    init(agent: PomoAgentCore, server: LocalAgentServer, presetStore: PresetStore) {
         self.agent = agent
         self.server = server
+        self.presetStore = presetStore
         super.init()
         refresh()
         sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -113,6 +118,8 @@ private final class IdleStatusItem: NSObject {
             menu.items.last?.target = self
         }
         menu.addItem(.separator())
+        menu.addItem(withTitle: "Presets...", action: #selector(openPresets), keyEquivalent: ",")
+        menu.items.last?.target = self
         menu.addItem(withTitle: "Quit Pomo", action: #selector(quit), keyEquivalent: "q")
         menu.items.last?.target = self
         item.menu = menu
@@ -157,6 +164,15 @@ private final class IdleStatusItem: NSObject {
             _ = try? await agent.skipPhase()
             refresh()
         }
+    }
+
+    @objc private func openPresets() {
+        if settingsWindow == nil {
+            settingsWindow = PresetSettingsWindowController(store: presetStore)
+        }
+        settingsWindow?.showWindow(nil)
+        settingsWindow?.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc private func quit() {

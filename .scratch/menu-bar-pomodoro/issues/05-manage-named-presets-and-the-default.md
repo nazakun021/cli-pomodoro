@@ -26,7 +26,9 @@
 - `swift test --filter ClassicSessionTests/testStartingDefaultPresetRecordsItsAcceptedStart` passed: Agent default-Preset starts commit recency before exposing the Session.
 - `swift test` passed: 50 tests, 0 failures.
 - `swift build` passed without diagnostics.
+- `swift build` passed after adding the native Presets Settings window: menu access, complete configuration fields, create/update/duplicate/default actions, and confirmed deletion are wired to the durable repository.
+- `swift test` passed after the Settings integration: 51 tests, 0 failures.
 
 ## Comments
 
-- The durable repository, default-resolution, and owner-only Agent-startup slices are complete. Ticket remains claimed for Settings UI, recency transaction coupling, and native accessibility automation.
+- The durable repository, default-resolution, owner-only Agent-startup, recency coupling, and native Settings UI are complete. Ticket remains claimed for the XCUITest/manual keyboard and VoiceOver verification pass.
