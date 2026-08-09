@@ -65,4 +65,22 @@ final class IPCEnvelopeTests: XCTestCase {
         XCTAssertEqual(duplicate.result?.sessionID, first.result?.sessionID)
         XCTAssertEqual(duplicate.result?.revision, first.result?.revision)
     }
+
+    func testSecondStartIsRejectedWithoutDisturbingActiveSession() async throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path
+        let server = try LocalAgentServer(path: path, agent: PomoAgentCore(productVersion: "0.1.0"))
+        defer { server.stop() }
+        let client = LocalAgentClient(path: path)
+        let first = try await client.startClassicResponse(requestID: UUID())
+
+        do {
+            _ = try await client.startClassicResponse(requestID: UUID())
+            XCTFail("Expected a second Start to be rejected")
+        } catch {}
+        let observed = try await client.statusResponse(requestID: UUID())
+
+        XCTAssertEqual(observed.result?.sessionID, first.result?.sessionID)
+        XCTAssertEqual(observed.result?.revision, first.result?.revision)
+    }
 }
