@@ -167,7 +167,8 @@ public struct AgentSnapshot: Codable, Equatable, Sendable {
                 Int.self, forKey: .configuredDurationSeconds),
             remainingSeconds: try container.decodeIfPresent(Int.self, forKey: .remainingSeconds),
             phaseStartedAt: try container.decodeIfPresent(String.self, forKey: .phaseStartedAt),
-            expectedTransitionAt: try container.decodeIfPresent(String.self, forKey: .expectedTransitionAt)
+            expectedTransitionAt: try container.decodeIfPresent(
+                String.self, forKey: .expectedTransitionAt)
         )
     }
 }
@@ -615,12 +616,12 @@ public final class LocalAgentServer: @unchecked Sendable {
                 snapshot = await agent.snapshot()
             case "start":
                 guard request.command == IPCCommand(name: "start"),
-                    let started = try? await agent.startClassic()
+                    let started = try? await agent.startClassic(requestID: request.requestID)
                 else { return }
                 snapshot = started
             case "stop":
                 guard request.command == IPCCommand(name: "stop"),
-                    let stopped = try? await agent.stopSession()
+                    let stopped = try? await agent.stopSession(requestID: request.requestID)
                 else { return }
                 snapshot = stopped
             default:
@@ -936,6 +937,7 @@ public actor PomoAgentCore {
     private let productVersion: String
     private var revision: UInt64 = 0
     private var activeSession: ActiveSession?
+    private var completedMutations: [UUID: AgentSnapshot] = [:]
 
     public init(productVersion: String) {
         self.productVersion = productVersion
@@ -945,7 +947,8 @@ public actor PomoAgentCore {
     public func snapshot() -> AgentSnapshot {
         if let activeSession {
             let duration = activeSession.configuration.focusSeconds
-            let remaining = max(0, Int(ceil(Double(duration) - Date().timeIntervalSince(activeSession.startedAt))))
+            let remaining = max(
+                0, Int(ceil(Double(duration) - Date().timeIntervalSince(activeSession.startedAt))))
             return AgentSnapshot(
                 agentRunning: true, agentInstanceID: agentInstanceID, agentState: .session,
                 revision: revision, sessionID: activeSession.id, sessionState: .running,
@@ -953,7 +956,8 @@ public actor PomoAgentCore {
                 configuration: activeSession.configuration, completedRounds: 0,
                 configuredDurationSeconds: duration, remainingSeconds: remaining,
                 phaseStartedAt: timestamp(activeSession.startedAt),
-                expectedTransitionAt: timestamp(activeSession.startedAt.addingTimeInterval(Double(duration)))
+                expectedTransitionAt: timestamp(
+                    activeSession.startedAt.addingTimeInterval(Double(duration)))
             )
         }
         return AgentSnapshot(
@@ -965,18 +969,32 @@ public actor PomoAgentCore {
     }
 
     public func startClassic() throws -> AgentSnapshot {
+        try startClassic(requestID: UUID())
+    }
+
+    fileprivate func startClassic(requestID: UUID) throws -> AgentSnapshot {
+        if let cached = completedMutations[requestID] { return cached }
         guard activeSession == nil else { throw AgentCommandError.sessionAlreadyActive }
         activeSession = ActiveSession(
             id: UUID(), phaseID: UUID(), configuration: .classic, startedAt: Date())
         revision += 1
-        return snapshot()
+        let result = snapshot()
+        completedMutations[requestID] = result
+        return result
     }
 
     public func stopSession() throws -> AgentSnapshot {
+        try stopSession(requestID: UUID())
+    }
+
+    fileprivate func stopSession(requestID: UUID) throws -> AgentSnapshot {
+        if let cached = completedMutations[requestID] { return cached }
         guard activeSession != nil else { throw AgentCommandError.noActiveSession }
         activeSession = nil
         revision += 1
-        return snapshot()
+        let result = snapshot()
+        completedMutations[requestID] = result
+        return result
     }
 
     fileprivate func handshakeInfo() -> AgentHandshakeInfo {

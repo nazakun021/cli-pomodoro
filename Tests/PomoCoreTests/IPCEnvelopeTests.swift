@@ -50,4 +50,19 @@ final class IPCEnvelopeTests: XCTestCase {
         XCTAssertEqual(observed.result?.agentState, .idle)
         XCTAssertEqual(observed.result?.revision, 2)
     }
+
+    func testDuplicateStartRequestReturnsOriginalOutcome() async throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path
+        let server = try LocalAgentServer(path: path, agent: PomoAgentCore(productVersion: "0.1.0"))
+        defer { server.stop() }
+        let client = LocalAgentClient(path: path)
+        let requestID = UUID()
+
+        let first = try await client.startClassicResponse(requestID: requestID)
+        let duplicate = try await client.startClassicResponse(requestID: requestID)
+
+        XCTAssertEqual(duplicate.result?.sessionID, first.result?.sessionID)
+        XCTAssertEqual(duplicate.result?.revision, first.result?.revision)
+    }
 }
