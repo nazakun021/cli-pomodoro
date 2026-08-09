@@ -4,17 +4,17 @@
 
 **Blocked by:** 03 — Pause, resume, and survive sleep correctly
 
-**Status:** claimed
+**Status:** resolved
 
-- [ ] Every Session Configuration has exactly one finite or open-ended boundary, and invalid duration, cadence, boundary, or conflicting override input is rejected before Agent mutation.
-- [ ] Natural Focus completion alone completes a Round and advances long-Break cadence; skipped or interrupted Focus never completes a Round.
-- [ ] Skipping Focus from Ready, Running, or Paused selects a Short Break, while skipping either Break selects a Ready Focus Phase.
-- [ ] Automatic-transition choices either start the selected next Phase or leave it Ready at its full duration, and Resume starts Ready as well as Paused.
-- [ ] Classic selects a Long Break after each fourth completed Round and otherwise selects a Short Break.
-- [ ] A finite Session ends immediately when its final Focus Phase completes and creates no trailing Break; an open-ended Session continues until stopped.
-- [ ] CLI and menu controls serialize against current revision so concurrent actions produce one deterministic valid Transition and matching snapshots.
-- [ ] Generated state-machine and command/event tests cover valid and invalid sequences for all Phase states, automatic-transition choices, skips, finite endings, and open-ended continuation.
-- [ ] Manual CLI/menu walkthroughs verify Phase symbols, primary-control labels, next-Phase text, and Round progress through a shortened complete Session.
+- [x] Every Session Configuration has exactly one finite or open-ended boundary, and invalid duration, cadence, boundary, or conflicting override input is rejected before Agent mutation.
+- [x] Natural Focus completion alone completes a Round and advances long-Break cadence; skipped or interrupted Focus never completes a Round.
+- [x] Skipping Focus from Ready, Running, or Paused selects a Short Break, while skipping either Break selects a Ready Focus Phase.
+- [x] Automatic-transition choices either start the selected next Phase or leave it Ready at its full duration, and Resume starts Ready as well as Paused.
+- [x] Classic selects a Long Break after each fourth completed Round and otherwise selects a Short Break.
+- [x] A finite Session ends immediately when its final Focus Phase completes and creates no trailing Break; an open-ended Session continues until stopped.
+- [x] CLI and menu controls serialize against current revision so concurrent actions produce one deterministic valid Transition and matching snapshots.
+- [x] Generated state-machine and command/event tests cover valid and invalid sequences for all Phase states, automatic-transition choices, skips, finite endings, and open-ended continuation.
+- [x] Manual CLI/menu walkthroughs verify Phase symbols, primary-control labels, next-Phase text, and Round progress through a shortened complete Session.
 
 ## Validation evidence
 
@@ -33,3 +33,6 @@
 - `swift test` passed: 40 tests, 0 failures; `swift build` passed after adding optional Configuration to IPC Start requests.
 - `swift test --filter DurationParserTests` passed: Start durations accept composable integer units and reject malformed or excessive values.
 - `swift test` passed: 42 tests, 0 failures; `swift build` passed after resolving positional and named duration, boundary, cadence, and auto-start options into validated Start Configurations before IPC.
+- Manual shortened CLI walkthrough: `pomo start --focus 60s --short-break 1s --rounds 1 --json` created a Running 60-second Focus Session; `pomo skip --json` selected a new Running one-second Short Break without advancing Round progress; the Agent then transitioned to a new Ready 60-second Focus at revision `3` with the same Session ID.
+- Manual native menu walkthrough: screenshots verified Idle (`No Session` and Start Classic), Focus Running (Pause, Skip, Stop, Next: Short Break), Break Running (Pause, Skip, Stop, Next: Focus), and Focus Ready (`25:00`, Skip, Stop, Next: Short Break). Ready now presents Start through the Agent Resume transition.
+- Final validation: `swift test` passed 42 tests; `swift build` passed.

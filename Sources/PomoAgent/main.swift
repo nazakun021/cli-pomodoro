@@ -83,6 +83,10 @@ private final class IdleStatusItem: NSObject {
                 menu.addItem(
                     withTitle: "Resume", action: #selector(resumeSession), keyEquivalent: "")
                 menu.items.last?.target = self
+            } else if snapshot.sessionState == .ready {
+                menu.addItem(
+                    withTitle: "Start", action: #selector(resumeSession), keyEquivalent: "")
+                menu.items.last?.target = self
             }
             menu.addItem(withTitle: "Skip", action: #selector(skipPhase), keyEquivalent: "")
             menu.items.last?.target = self

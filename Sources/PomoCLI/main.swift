@@ -11,8 +11,7 @@ struct PomoCLI {
         let startConfiguration: SessionConfiguration?
 
         if command == "start" {
-            do { startConfiguration = try parseStartConfiguration(arguments) }
-            catch {
+            do { startConfiguration = try parseStartConfiguration(arguments) } catch {
                 FileHandle.standardError.write(Data("Invalid start options.\n".utf8))
                 Foundation.exit(2)
             }
@@ -109,7 +108,9 @@ struct PomoCLI {
         }
     }
 
-    private static func parseStartConfiguration(_ arguments: [String]) throws -> SessionConfiguration? {
+    private static func parseStartConfiguration(_ arguments: [String]) throws
+        -> SessionConfiguration?
+    {
         let startIndex = arguments.firstIndex(of: "start")!
         let values = Array(arguments.dropFirst(startIndex + 1))
         var focus: Int?
@@ -125,12 +126,35 @@ struct PomoCLI {
 
         while index < values.count {
             let value = values[index]
-            if value == "--replace" || value == "--json" { index += 1; continue }
-            if value == "--open-ended" { openEnded = true; index += 1; continue }
-            if value == "--auto-start-focus" { autoFocus = true; index += 1; continue }
-            if value == "--no-auto-start-focus" { autoFocus = false; index += 1; continue }
-            if value == "--auto-start-breaks" { autoBreaks = true; index += 1; continue }
-            if value == "--no-auto-start-breaks" { autoBreaks = false; index += 1; continue }
+            if value == "--replace" || value == "--json" {
+                index += 1
+                continue
+            }
+            if value == "--open-ended" {
+                openEnded = true
+                index += 1
+                continue
+            }
+            if value == "--auto-start-focus" {
+                autoFocus = true
+                index += 1
+                continue
+            }
+            if value == "--no-auto-start-focus" {
+                autoFocus = false
+                index += 1
+                continue
+            }
+            if value == "--auto-start-breaks" {
+                autoBreaks = true
+                index += 1
+                continue
+            }
+            if value == "--no-auto-start-breaks" {
+                autoBreaks = false
+                index += 1
+                continue
+            }
             guard index + 1 < values.count else { throw DurationParserError.invalidDuration }
             let next = values[index + 1]
             switch value {
@@ -151,7 +175,10 @@ struct PomoCLI {
         guard positional == nil || focus == nil else { throw DurationParserError.invalidDuration }
         if let positional { focus = try DurationParser.parse(positional) }
         guard !openEnded || rounds == nil else { throw DurationParserError.invalidDuration }
-        guard focus != nil || shortBreak != nil || longBreak != nil || rounds != nil || openEnded || cadence != nil || autoFocus != nil || autoBreaks != nil else { return nil }
+        guard
+            focus != nil || shortBreak != nil || longBreak != nil || rounds != nil || openEnded
+                || cadence != nil || autoFocus != nil || autoBreaks != nil
+        else { return nil }
         let classic = SessionConfiguration.classic
         return try SessionConfiguration(
             focusSeconds: focus ?? classic.focusSeconds,
