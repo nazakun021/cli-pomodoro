@@ -1,5 +1,6 @@
 import AppKit
 import PomoCore
+import UserNotifications
 
 struct PomoAgent {
     @MainActor
@@ -50,6 +51,9 @@ private final class IdleStatusItem: NSObject {
     private var sleepObserver: NSObjectProtocol?
     private var settingsWindow: PresetSettingsWindowController?
     private var customSessionPopover: CustomSessionPopoverController?
+    private var previousSnapshot: AgentSnapshot?
+    private var authorizationRequested = false
+    private var refreshGeneration = 0
 
     init(agent: PomoAgentCore, server: LocalAgentServer, presetStore: PresetStore) {
         self.agent = agent
@@ -76,9 +80,17 @@ private final class IdleStatusItem: NSObject {
     }
 
     private func refresh() {
+        refreshGeneration += 1
+        let generation = refreshGeneration
         Task { [weak self] in
             guard let self else { return }
             let snapshot = await agent.advanceIfDue()
+            guard generation == refreshGeneration else { return }
+            if snapshot.agentState == .session {
+                requestNotificationAuthorizationIfNeeded()
+            }
+            deliverCompletionCue(from: previousSnapshot, to: snapshot)
+            previousSnapshot = snapshot
             rebuildMenu(for: snapshot)
         }
     }
@@ -138,6 +150,7 @@ private final class IdleStatusItem: NSObject {
     }
 
     @objc private func startClassic() {
+        requestNotificationAuthorizationIfNeeded()
         Task { [agent] in
             _ = try? await agent.startClassic()
             refresh()
@@ -170,6 +183,7 @@ private final class IdleStatusItem: NSObject {
     @objc private func startPreset(_ sender: NSMenuItem) {
         guard let idValue = sender.representedObject as? String, let id = UUID(uuidString: idValue)
         else { return }
+        requestNotificationAuthorizationIfNeeded()
         Task { [agent] in
             _ = try? await agent.start(presetID: id)
             refresh()
@@ -177,6 +191,7 @@ private final class IdleStatusItem: NSObject {
     }
 
     @objc private func openCustomSession() {
+        requestNotificationAuthorizationIfNeeded()
         if customSessionPopover == nil {
             customSessionPopover = CustomSessionPopoverController(agent: agent, store: presetStore)
             {
@@ -218,6 +233,44 @@ private final class IdleStatusItem: NSObject {
         Task { [agent] in
             _ = try? await agent.skipPhase()
             refresh()
+        }
+    }
+
+    private func requestNotificationAuthorizationIfNeeded() {
+        guard !authorizationRequested else { return }
+        authorizationRequested = true
+        UNUserNotificationCenter.current().requestAuthorization(
+            options: [.alert, .sound]) { _, _ in }
+    }
+
+    private func deliverCompletionCue(from previous: AgentSnapshot?, to current: AgentSnapshot) {
+        guard let previous,
+            previous.agentState == .session,
+            previous.phaseType == .focus
+        else { return }
+        let preferences = alertPreferences.preferences
+        if preferences.soundEnabled { NSSound.beep() }
+        guard preferences.notificationsEnabled else { return }
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            guard settings.authorizationStatus == .authorized else { return }
+            let content = UNMutableNotificationContent()
+            content.title = "Pomo"
+            let body: String
+            if current.agentState != .session {
+                body = "Focus completed."
+            } else if current.phaseType == .focus {
+                body = "Focus is ready."
+            } else {
+                body = "Break started."
+            }
+            content.body = body
+            content.sound = preferences.soundEnabled ? .default : nil
+            let phaseID = current.phaseID ?? previous.phaseID ?? UUID()
+            let request = UNNotificationRequest(
+                identifier: "pomo-phase-\(phaseID.uuidString)",
+                content: content,
+                trigger: nil)
+            UNUserNotificationCenter.current().add(request)
         }
     }
 
