@@ -22,8 +22,12 @@ final class MidnightAccountingTests: XCTestCase {
         clock.advance(monotonicBy: 3, wallBy: 3)
         _ = await agent.advanceIfDue()
 
-        XCTAssertEqual(store.summary(for: dateString(start)), DailySummary(focusMilliseconds: 1_000, completedRounds: 0))
-        XCTAssertEqual(store.summary(for: dateString(start.addingTimeInterval(3))), DailySummary(focusMilliseconds: 2_000, completedRounds: 1))
+        XCTAssertEqual(
+            store.summary(for: dateString(start)),
+            DailySummary(focusMilliseconds: 1_000, completedRounds: 0))
+        XCTAssertEqual(
+            store.summary(for: dateString(start.addingTimeInterval(3))),
+            DailySummary(focusMilliseconds: 2_000, completedRounds: 1))
     }
 }
 

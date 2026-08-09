@@ -126,15 +126,27 @@ public final class SummaryStore: @unchecked Sendable {
     }
 
     public func record(_ contribution: FocusContribution) throws {
-        guard
-            !state.contributions.contains(where: {
+        try record([contribution])
+    }
+
+    public func record(_ contributions: [FocusContribution]) throws {
+        var additions: [FocusContribution] = []
+        for contribution in contributions {
+            let isDuplicate = state.contributions.contains {
                 $0.phaseID == contribution.phaseID && $0.date == contribution.date
-            })
-        else {
-            return
+            } || additions.contains {
+                $0.phaseID == contribution.phaseID && $0.date == contribution.date
+            }
+            if !isDuplicate { additions.append(contribution) }
         }
-        state.contributions.append(contribution)
-        try persist()
+        guard !additions.isEmpty else { return }
+        state.contributions.append(contentsOf: additions)
+        do {
+            try persist()
+        } catch {
+            state.contributions.removeLast(additions.count)
+            throw error
+        }
     }
 
     public func summary(for date: String) -> DailySummary {
@@ -2175,10 +2187,10 @@ public actor PomoAgentCore {
         }
 
         if activeSession.phaseType == .focus {
-            recordFocusContribution(
+            guard recordFocusContribution(
                 from: activeSession,
                 elapsedMilliseconds: Int64(activeSession.duration) * 1_000,
-                completedRound: true)
+                completedRound: true) else { return snapshot() }
         }
         self.activeSession = activeSession.completed(
             wallTime: clock.wallNow(), monotonicTime: clock.monotonicNow())
@@ -2210,10 +2222,10 @@ public actor PomoAgentCore {
         if activeSession.phaseType == .focus {
             let remaining = activeSession.remainingDuration(at: clock.monotonicNow())
             let elapsed = max(0, Double(activeSession.duration) - remaining)
-            recordFocusContribution(
+            guard recordFocusContribution(
                 from: activeSession,
                 elapsedMilliseconds: Int64((elapsed * 1_000).rounded(.down)),
-                completedRound: false)
+                completedRound: false) else { throw AgentCommandError.accountingFailed }
         }
         self.activeSession = activeSession.skipped(
             wallTime: clock.wallNow(), monotonicTime: clock.monotonicNow())
@@ -2245,10 +2257,10 @@ public actor PomoAgentCore {
         if let activeSession, activeSession.phaseType == .focus {
             let remaining = activeSession.remainingDuration(at: clock.monotonicNow())
             let elapsed = max(0, Double(activeSession.duration) - remaining)
-            recordFocusContribution(
+            guard recordFocusContribution(
                 from: activeSession,
                 elapsedMilliseconds: Int64((elapsed * 1_000).rounded(.down)),
-                completedRound: false)
+                completedRound: false) else { throw AgentCommandError.accountingFailed }
         }
         activeSession = nil
         revision += 1
@@ -2297,26 +2309,34 @@ public actor PomoAgentCore {
         from session: ActiveSession,
         elapsedMilliseconds: Int64,
         completedRound: Bool
-    ) {
-        guard elapsedMilliseconds > 0 else { return }
-        guard let summaryStore else { return }
+    ) -> Bool {
+        guard elapsedMilliseconds > 0 else { return true }
+        guard let summaryStore else { return true }
         let end = clock.wallNow()
-        let start = session.startedAt ?? end.addingTimeInterval(
-            -Double(elapsedMilliseconds) / 1_000)
+        let start =
+            session.startedAt
+            ?? end.addingTimeInterval(
+                -Double(elapsedMilliseconds) / 1_000)
         if end < start {
-            try? summaryStore.record(FocusContribution(
-                phaseID: session.phaseID,
-                date: localDateString(end),
-                elapsedMilliseconds: elapsedMilliseconds,
-                completedRound: completedRound))
-            return
+            do {
+                try summaryStore.record([
+                FocusContribution(
+                    phaseID: session.phaseID,
+                    date: localDateString(end),
+                    elapsedMilliseconds: elapsedMilliseconds,
+                    completedRound: completedRound)
+                ])
+                return true
+            } catch { return false }
         }
         let calendar = Calendar.current
         var cursor = start
         var remaining = elapsedMilliseconds
+        var contributions: [FocusContribution] = []
         while remaining > 0 {
-            let dayEnd = calendar.date(
-                byAdding: .day, value: 1, to: calendar.startOfDay(for: cursor)) ?? end
+            let dayEnd =
+                calendar.date(
+                    byAdding: .day, value: 1, to: calendar.startOfDay(for: cursor)) ?? end
             let segmentEnd = min(end, dayEnd)
             let segmentMilliseconds: Int64
             if segmentEnd >= end {
@@ -2327,16 +2347,20 @@ public actor PomoAgentCore {
                     max(0, Int64(((segmentEnd.timeIntervalSince(cursor)) * 1_000).rounded(.down))))
             }
             if segmentMilliseconds > 0 {
-                try? summaryStore.record(FocusContribution(
-                    phaseID: session.phaseID,
-                    date: localDateString(cursor),
-                    elapsedMilliseconds: segmentMilliseconds,
-                    completedRound: completedRound && segmentMilliseconds == remaining))
+                contributions.append(FocusContribution(
+                        phaseID: session.phaseID,
+                        date: localDateString(cursor),
+                        elapsedMilliseconds: segmentMilliseconds,
+                        completedRound: completedRound && segmentMilliseconds == remaining))
                 remaining -= segmentMilliseconds
             }
             guard segmentEnd > cursor else { break }
             cursor = segmentEnd
         }
+        do {
+            try summaryStore.record(contributions)
+            return true
+        } catch { return false }
     }
 
     fileprivate func handshakeInfo() -> AgentHandshakeInfo {
@@ -2358,6 +2382,7 @@ public enum AgentCommandError: Error, Equatable, Sendable {
     case wrongAgent
     case invalidRequestTimestamp
     case invalidTransition
+    case accountingFailed
 
     fileprivate func publicError(snapshot: AgentSnapshot) -> PublicError {
         let currentState = snapshot.sessionState?.rawValue ?? snapshot.agentState.rawValue
@@ -2392,6 +2417,11 @@ public enum AgentCommandError: Error, Equatable, Sendable {
                 message:
                     "The current Phase does not accept that action. Current state: \(currentState). Valid next actions: \(validActions).",
                 exitCode: 3)
+        case .accountingFailed:
+            return PublicError(
+                code: "recovery_required",
+                message: "Focus accounting could not be committed. Retry the command.",
+                exitCode: 5)
         case .requestExpired:
             return PublicError(
                 code: "invalid_request", message: "Mutating request is older than five minutes.",
