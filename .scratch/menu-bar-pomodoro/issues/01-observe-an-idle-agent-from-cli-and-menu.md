@@ -24,3 +24,4 @@
 - `swift run PomoAgent` followed by `swift run pomo status --json` returned `agent_running: true`, the Agent identity, and the Idle snapshot; the temporary Agent was stopped after the smoke test.
 - `swift test` passed: 7 tests, 0 failures, including refusal to replace a live socket endpoint.
 - `swift test` passed after protocol hardening: 10 tests, 0 failures. Socket Status now requires a successful version/capability handshake and rejects a mismatched protocol major before command execution.
+- `swift test` and `swift build` passed after Idle schema alignment: the reachable Idle snapshot now emits exactly the required v1 state matrix, including all Session and Phase fields as explicit nulls.

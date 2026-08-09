@@ -26,8 +26,29 @@ final class IdleAgentTests: XCTestCase {
         XCTAssertEqual(object["success"] as? Bool, true)
         XCTAssertTrue(object["error"] is NSNull)
         let snapshot = try XCTUnwrap(object["snapshot"] as? [String: Any])
+        XCTAssertEqual(
+            Set(snapshot.keys),
+            [
+                "agent_running", "agent_instance_id", "agent_state", "state_revision",
+                "session_id", "session_state", "phase_id", "phase_type", "source_preset_name",
+                "configuration", "completed_rounds", "configured_duration_seconds", "remaining_seconds",
+                "session_started_at", "phase_started_at", "expected_transition_at", "recovery",
+            ]
+        )
         XCTAssertEqual(snapshot["agent_state"] as? String, "idle")
-        XCTAssertTrue(snapshot["session"] is NSNull)
+        XCTAssertEqual(snapshot["state_revision"] as? Int, 0)
+        XCTAssertTrue(snapshot["session_id"] is NSNull)
+        XCTAssertTrue(snapshot["session_state"] is NSNull)
+        XCTAssertTrue(snapshot["phase_id"] is NSNull)
+        XCTAssertTrue(snapshot["phase_type"] is NSNull)
+        XCTAssertTrue(snapshot["source_preset_name"] is NSNull)
+        XCTAssertTrue(snapshot["configuration"] is NSNull)
+        XCTAssertTrue(snapshot["completed_rounds"] is NSNull)
+        XCTAssertTrue(snapshot["configured_duration_seconds"] is NSNull)
+        XCTAssertTrue(snapshot["remaining_seconds"] is NSNull)
+        XCTAssertTrue(snapshot["session_started_at"] is NSNull)
+        XCTAssertTrue(snapshot["phase_started_at"] is NSNull)
+        XCTAssertTrue(snapshot["expected_transition_at"] is NSNull)
         XCTAssertTrue(snapshot["recovery"] is NSNull)
     }
 

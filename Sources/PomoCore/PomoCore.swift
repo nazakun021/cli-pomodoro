@@ -34,8 +34,19 @@ public struct AgentSnapshot: Codable, Equatable, Sendable {
 		case agentRunning = "agent_running"
 		case agentInstanceID = "agent_instance_id"
 		case agentState = "agent_state"
-		case revision
-		case session
+		case revision = "state_revision"
+		case sessionID = "session_id"
+		case sessionState = "session_state"
+		case phaseID = "phase_id"
+		case phaseType = "phase_type"
+		case sourcePresetName = "source_preset_name"
+		case configuration
+		case completedRounds = "completed_rounds"
+		case configuredDurationSeconds = "configured_duration_seconds"
+		case remainingSeconds = "remaining_seconds"
+		case sessionStartedAt = "session_started_at"
+		case phaseStartedAt = "phase_started_at"
+		case expectedTransitionAt = "expected_transition_at"
 		case recovery
 	}
 
@@ -45,10 +56,29 @@ public struct AgentSnapshot: Codable, Equatable, Sendable {
 		try container.encode(agentInstanceID, forKey: .agentInstanceID)
 		try container.encode(agentState, forKey: .agentState)
 		try container.encode(revision, forKey: .revision)
-		try container.encodeIfPresent(session, forKey: .session)
-		if session == nil { try container.encodeNil(forKey: .session) }
-		try container.encodeIfPresent(recovery, forKey: .recovery)
-		if recovery == nil { try container.encodeNil(forKey: .recovery) }
+		try container.encodeNil(forKey: .sessionID)
+		try container.encodeNil(forKey: .sessionState)
+		try container.encodeNil(forKey: .phaseID)
+		try container.encodeNil(forKey: .phaseType)
+		try container.encodeNil(forKey: .sourcePresetName)
+		try container.encodeNil(forKey: .configuration)
+		try container.encodeNil(forKey: .completedRounds)
+		try container.encodeNil(forKey: .configuredDurationSeconds)
+		try container.encodeNil(forKey: .remainingSeconds)
+		try container.encodeNil(forKey: .sessionStartedAt)
+		try container.encodeNil(forKey: .phaseStartedAt)
+		try container.encodeNil(forKey: .expectedTransitionAt)
+		try container.encodeNil(forKey: .recovery)
+	}
+
+	public init(from decoder: Decoder) throws {
+		let container = try decoder.container(keyedBy: CodingKeys.self)
+		self.init(
+			agentRunning: try container.decode(Bool.self, forKey: .agentRunning),
+			agentInstanceID: try container.decode(UUID.self, forKey: .agentInstanceID),
+			agentState: try container.decode(AgentState.self, forKey: .agentState),
+			revision: try container.decode(UInt64.self, forKey: .revision)
+		)
 	}
 }
 
