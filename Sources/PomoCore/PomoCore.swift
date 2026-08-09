@@ -151,6 +151,64 @@ public enum FrameCodec {
 	}
 }
 
+public struct ProtocolVersion: Codable, Equatable, Sendable {
+	public let major: Int
+	public let minor: Int
+
+	public init(major: Int, minor: Int) {
+		self.major = major
+		self.minor = minor
+	}
+}
+
+public struct ProtocolRange: Codable, Equatable, Sendable {
+	public let major: Int
+	public let minimumMinor: Int
+	public let maximumMinor: Int
+
+	public init(major: Int, minimumMinor: Int, maximumMinor: Int) {
+		self.major = major
+		self.minimumMinor = minimumMinor
+		self.maximumMinor = maximumMinor
+	}
+}
+
+public struct ProtocolNegotiation: Equatable, Sendable {
+	public let version: ProtocolVersion
+	public let capabilities: [String]
+}
+
+public enum ProtocolNegotiationError: Error, Equatable, Sendable {
+	case invalidRange
+	case majorMismatch
+	case noSharedMinor
+}
+
+public enum ProtocolNegotiator {
+	public static func negotiate(
+		agent: ProtocolRange,
+		client: ProtocolRange,
+		agentCapabilities: [String],
+		clientCapabilities: [String]
+	) throws -> ProtocolNegotiation {
+		guard agent.minimumMinor <= agent.maximumMinor,
+			  client.minimumMinor <= client.maximumMinor
+		else { throw ProtocolNegotiationError.invalidRange }
+		guard agent.major == client.major else { throw ProtocolNegotiationError.majorMismatch }
+
+		let minimum = max(agent.minimumMinor, client.minimumMinor)
+		let maximum = min(agent.maximumMinor, client.maximumMinor)
+		guard minimum <= maximum else { throw ProtocolNegotiationError.noSharedMinor }
+
+		let clientCapabilitySet = Set(clientCapabilities)
+		let capabilities = Array(Set(agentCapabilities).intersection(clientCapabilitySet)).sorted()
+		return ProtocolNegotiation(
+			version: ProtocolVersion(major: agent.major, minor: maximum),
+			capabilities: capabilities
+		)
+	}
+}
+
 public enum LocalAgentTransportError: Error, Equatable, Sendable {
 	case invalidPath
 	case socketCreationFailed
@@ -161,6 +219,7 @@ public enum LocalAgentTransportError: Error, Equatable, Sendable {
 	case readFailed
 	case writeFailed
 	case invalidResponse
+	case protocolMismatch
 }
 
 public enum RuntimeEndpoint {
@@ -220,21 +279,54 @@ public final class LocalAgentServer: @unchecked Sendable {
 	}
 
 	private func handle(client: Int32) {
-		guard let requestData = try? Self.readFrame(from: client),
-			  let request = try? JSONDecoder().decode(StatusRequest.self, from: requestData),
-			  request.command == "status"
-		else {
-			return
-		}
-
 		let responseWritten = DispatchSemaphore(value: 0)
 		Task { [agent] in
 			defer { responseWritten.signal() }
-			let response = PublicResponse.success(snapshot: await agent.snapshot())
-			guard let payload = try? JSONEncoder().encode(response),
-				  let frame = try? FrameCodec.encode(payload)
+			guard let helloData = try? Self.readFrame(from: client),
+				  let wireMessage = try? JSONDecoder().decode(WireMessage.self, from: helloData),
+				  let hello = try? JSONDecoder().decode(Hello.self, from: helloData),
+				  wireMessage.messageType == "hello"
 			else { return }
-			_ = Self.writeAll(frame, to: client)
+
+			let handshake = await agent.handshakeInfo()
+			do {
+				let negotiation = try ProtocolNegotiator.negotiate(
+					agent: handshake.supportedProtocol,
+					client: hello.supportedProtocol,
+					agentCapabilities: handshake.capabilities,
+					clientCapabilities: hello.capabilities
+				)
+				guard Self.writeJSON(
+					HelloAck(
+						messageID: UUID(),
+						replyTo: hello.messageID,
+						agentVersion: handshake.productVersion,
+						agentInstanceID: handshake.agentInstanceID,
+						negotiatedProtocol: negotiation.version,
+						capabilities: negotiation.capabilities,
+						stateRevision: handshake.revision
+					),
+					to: client
+				) else { return }
+			} catch {
+				_ = Self.writeJSON(
+					HelloReject(
+						messageID: UUID(),
+						replyTo: hello.messageID,
+						agentVersion: handshake.productVersion,
+						supportedProtocol: handshake.supportedProtocol
+					),
+					to: client
+				)
+				return
+			}
+
+			guard let requestData = try? Self.readFrame(from: client),
+				  let request = try? JSONDecoder().decode(StatusRequest.self, from: requestData),
+				  request.command == "status"
+			else { return }
+			let response = PublicResponse.success(snapshot: await agent.snapshot())
+			_ = Self.writeJSON(response, to: client)
 		}
 		responseWritten.wait()
 	}
@@ -307,13 +399,25 @@ public final class LocalAgentServer: @unchecked Sendable {
 			return true
 		}
 	}
+
+	private static func writeJSON<T: Encodable>(_ value: T, to descriptor: Int32) -> Bool {
+		guard let payload = try? JSONEncoder().encode(value),
+			  let frame = try? FrameCodec.encode(payload)
+		else { return false }
+		return writeAll(frame, to: descriptor)
+	}
 }
 
 public struct LocalAgentClient: Sendable {
 	private let path: String
+	private let supportedProtocol: ProtocolRange
 
-	public init(path: String) {
+	public init(
+		path: String,
+		supportedProtocol: ProtocolRange = ProtocolRange(major: 1, minimumMinor: 0, maximumMinor: 0)
+	) {
 		self.path = path
+		self.supportedProtocol = supportedProtocol
 	}
 
 	public func status() async throws -> PublicResponse {
@@ -326,6 +430,21 @@ public struct LocalAgentClient: Sendable {
 			}
 		}
 		guard result == 0 else { throw LocalAgentTransportError.connectFailed }
+
+		let hello = Hello(
+			messageID: UUID(),
+			clientName: "pomo",
+			clientVersion: "0.1.0",
+			supportedProtocol: supportedProtocol,
+			capabilities: ["status"]
+		)
+		guard LocalAgentServer.writeAll(try FrameCodec.encode(try JSONEncoder().encode(hello)), to: descriptor) else {
+			throw LocalAgentTransportError.writeFailed
+		}
+		let handshakeData = try LocalAgentServer.readFrame(from: descriptor)
+		let handshakeType = try JSONDecoder().decode(WireMessage.self, from: handshakeData)
+		guard handshakeType.messageType == "hello_ack" else { throw LocalAgentTransportError.protocolMismatch }
+		_ = try JSONDecoder().decode(HelloAck.self, from: handshakeData)
 
 		let request = try JSONEncoder().encode(StatusRequest(command: "status"))
 		guard LocalAgentServer.writeAll(try FrameCodec.encode(request), to: descriptor) else {
@@ -341,6 +460,70 @@ public struct LocalAgentClient: Sendable {
 
 private struct StatusRequest: Codable, Sendable {
 	let command: String
+}
+
+private struct WireMessage: Decodable {
+	let messageType: String
+
+	enum CodingKeys: String, CodingKey {
+		case messageType = "message_type"
+	}
+}
+
+private struct Hello: Codable, Sendable {
+	let messageType = "hello"
+	let messageID: UUID
+	let clientName: String
+	let clientVersion: String
+	let supportedProtocol: ProtocolRange
+	let capabilities: [String]
+
+	enum CodingKeys: String, CodingKey {
+		case messageType = "message_type"
+		case messageID = "message_id"
+		case clientName = "client_name"
+		case clientVersion = "client_version"
+		case supportedProtocol = "supported_protocol"
+		case capabilities
+	}
+}
+
+private struct HelloAck: Codable, Sendable {
+	let messageType = "hello_ack"
+	let messageID: UUID
+	let replyTo: UUID
+	let agentVersion: String
+	let agentInstanceID: UUID
+	let negotiatedProtocol: ProtocolVersion
+	let capabilities: [String]
+	let stateRevision: UInt64
+
+	enum CodingKeys: String, CodingKey {
+		case messageType = "message_type"
+		case messageID = "message_id"
+		case replyTo = "reply_to"
+		case agentVersion = "agent_version"
+		case agentInstanceID = "agent_instance_id"
+		case negotiatedProtocol = "negotiated_protocol"
+		case capabilities
+		case stateRevision = "state_revision"
+	}
+}
+
+private struct HelloReject: Codable, Sendable {
+	let messageType = "hello_reject"
+	let messageID: UUID
+	let replyTo: UUID
+	let agentVersion: String
+	let supportedProtocol: ProtocolRange
+
+	enum CodingKeys: String, CodingKey {
+		case messageType = "message_type"
+		case messageID = "message_id"
+		case replyTo = "reply_to"
+		case agentVersion = "agent_version"
+		case supportedProtocol = "supported_protocol"
+	}
 }
 
 private func unixAddress(_ path: String) throws -> sockaddr_un {
@@ -378,4 +561,22 @@ public actor PomoAgentCore {
 			revision: revision
 		)
 	}
+
+	fileprivate func handshakeInfo() -> AgentHandshakeInfo {
+		AgentHandshakeInfo(
+			productVersion: productVersion,
+			agentInstanceID: agentInstanceID,
+			revision: revision,
+			supportedProtocol: ProtocolRange(major: 1, minimumMinor: 0, maximumMinor: 0),
+			capabilities: ["status"]
+		)
+	}
+}
+
+fileprivate struct AgentHandshakeInfo: Sendable {
+	let productVersion: String
+	let agentInstanceID: UUID
+	let revision: UInt64
+	let supportedProtocol: ProtocolRange
+	let capabilities: [String]
 }
