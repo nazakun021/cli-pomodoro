@@ -1,5 +1,6 @@
 import AppKit
 import PomoCore
+import ServiceManagement
 @preconcurrency import UserNotifications
 
 struct PomoAgent {
@@ -189,6 +190,16 @@ private final class IdleStatusItem: NSObject {
         menu.items.last?.target = self
         menu.addItem(withTitle: "Alerts...", action: #selector(openAlerts), keyEquivalent: "")
         menu.items.last?.target = self
+        let loginItem = menu.addItem(
+            withTitle: "Launch at Login",
+            action: #selector(toggleLaunchAtLogin(_:)),
+            keyEquivalent: "")
+        loginItem.target = self
+        switch SMAppService.mainApp.status {
+        case .enabled: loginItem.state = .on
+        case .requiresApproval: loginItem.state = .mixed
+        default: loginItem.state = .off
+        }
         menu.addItem(withTitle: "Quit Pomo", action: #selector(quit), keyEquivalent: "q")
         menu.items.last?.target = self
         item.menu = menu
@@ -409,6 +420,33 @@ private final class IdleStatusItem: NSObject {
             soundEnabled: sound.state == .on)
     }
 
+    @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
+        do {
+            let status = SMAppService.mainApp.status
+            if status == .requiresApproval {
+                let alert = NSAlert()
+                alert.messageText = "Approve Launch at Login"
+                alert.informativeText =
+                    "Open System Settings > General > Login Items and approve Pomo."
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
+                return
+            }
+            if status == .enabled {
+                try SMAppService.mainApp.unregister()
+            } else {
+                try SMAppService.mainApp.register()
+            }
+            refresh()
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Launch at Login Unavailable"
+            alert.informativeText = error.localizedDescription
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
+    }
+
     @objc private func quit() {
         isQuitting = true
         refreshGeneration += 1
@@ -445,7 +483,9 @@ private final class IdleStatusItem: NSObject {
 }
 
 @MainActor
-private final class PomoNotificationDelegate: NSObject, @preconcurrency UNUserNotificationCenterDelegate {
+private final class PomoNotificationDelegate: NSObject,
+    @preconcurrency UNUserNotificationCenterDelegate
+{
     private let agent: PomoAgentCore
 
     init(agent: PomoAgentCore) {
