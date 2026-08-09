@@ -2207,6 +2207,14 @@ public actor PomoAgentCore {
             activeSession.state == .ready || activeSession.state == .running
                 || activeSession.state == .paused
         else { throw AgentCommandError.invalidTransition }
+        if activeSession.phaseType == .focus {
+            let remaining = activeSession.remainingDuration(at: clock.monotonicNow())
+            let elapsed = max(0, Double(activeSession.duration) - remaining)
+            recordFocusContribution(
+                from: activeSession,
+                elapsedMilliseconds: Int64((elapsed * 1_000).rounded(.down)),
+                completedRound: false)
+        }
         self.activeSession = activeSession.skipped(
             wallTime: clock.wallNow(), monotonicTime: clock.monotonicNow())
         revision += 1
