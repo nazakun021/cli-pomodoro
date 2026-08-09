@@ -4,18 +4,21 @@ Use this workflow for non-trivial changes. It separates decisions from execution
 
 ## 1. Plan
 
-- Create `.scratch/<feature-slug>/spec.md` from `docs/agents/templates/spec.md`.
+- Preserve resolved grilling/design detail in `.scratch/<feature-slug>/FEATURES.md` when that context exists.
+- Publish the formal feature specification to `.scratch/<feature-slug>/SPEC.md` from `docs/agents/templates/spec.md`; do not overwrite `FEATURES.md`.
 - Clarify the user outcome, non-goals, constraints, acceptance criteria, and validation commands before editing source code.
-- Break approved work into independent issue files under `.scratch/<feature-slug>/issues/`, using `docs/agents/templates/task.md`.
+- Break `ready-for-agent` work into independent issue files under `.scratch/<feature-slug>/issues/`, using `docs/agents/templates/task.md`.
 - Put shared foundations before dependent feature work. Keep tasks small enough to implement and validate in one focused session.
 
 ## 2. Execute one task
 
-- Use one of these status values: `open`, `blocked`, or `resolved`.
-- Read the feature spec, the task file, relevant domain docs, and the local code path before editing.
+- Work only from the current frontier: a `ready-for-agent` ticket whose blockers are all `resolved`.
+- Change the ticket status to `claimed` before editing. Use only `ready-for-agent`, `claimed`, `blocked`, or `resolved`.
+- Read `SPEC.md`, `FEATURES.md` when present, the task file, relevant domain docs, and the local code path before editing.
 - Make the smallest change that can satisfy the task's observable acceptance criteria.
 - Run the task's focused validation immediately after editing. Record the exact command and result in the task file.
-- Update the task `Status:` to `resolved` only after validation passes.
+- Append a `## Validation evidence` section when execution begins if one is not present.
+- Update the task status to `resolved` only after every criterion and focused validation passes.
 
 ## 3. Stop on blockers
 
@@ -39,6 +42,7 @@ Set the affected task to `blocked` and stop work on it. Continue only with indep
 - Use a fresh session when the task no longer fits the available context, but preserve the spec, task, validation results, and blockers in files first.
 - Do not run destructive Git commands such as `git reset --hard` on a shared or dirty working tree. Use a dedicated branch or worktree, and discard only changes you own and have confirmed are safe to discard.
 - Parallel agents may research independently, but only one agent writes to a given code area at a time unless worktrees isolate the changes.
+- Dependency independence does not imply edit independence; coordinate tickets that touch the Agent state machine, protocol models, or shared schemas.
 - Add browser or runtime logs to validation only when the feature needs them; use the cheapest check that can disprove the change.
 
 ## Automation maturity

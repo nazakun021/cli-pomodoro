@@ -1,26 +1,31 @@
-# Feature: <name>
+# Spec: <name>
 
-## Outcome
+Status: needs-triage
 
-<Describe the user-visible result.>
+## Problem Statement
 
-## Context
+<Describe the problem from the user's perspective.>
 
-<Link relevant source files, domain documentation, tickets, and constraints.>
+## Solution
 
-## Non-goals
+<Describe the solution from the user's perspective.>
 
-- <Explicitly excluded work>
+## User Stories
 
-## Acceptance criteria
+1. As an <actor>, I want <feature>, so that <benefit>.
 
-- [ ] <Observable behavior or measurable result>
-- [ ] <Validation condition>
+## Implementation Decisions
 
-## Tasks
+- <Stable module, interface, architecture, schema, API, or interaction decision. Do not include volatile file paths.>
 
-- [ ] `issues/01-<slug>.md` - <smallest valuable unit>
+## Testing Decisions
 
-## Validation plan
+- <Highest observable testing seam and externally visible behavior to verify.>
 
-<List the focused commands, tests, or manual checks that prove the outcome.>
+## Out of Scope
+
+- <Explicitly excluded work.>
+
+## Further Notes
+
+<Supporting context, constraints, accepted ADRs, or milestone notes.>

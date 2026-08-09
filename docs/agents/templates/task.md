@@ -1,28 +1,27 @@
-# <Task title>
+# <NN> — <Ticket title>
 
-Status: open
-Type: task
+**What to build:** <The narrow end-to-end behavior this ticket makes work from the user's perspective.>
 
-## Goal
+**Blocked by:** <NN — Title; NN — Title, or None — can start immediately>
 
-<State the narrow outcome this task delivers.>
-
-## Scope
-
-- <Files or code paths expected to change>
+**Status:** ready-for-agent
 
 ## Acceptance criteria
 
-- [ ] <Observable behavior>
+- [ ] <Observable end-to-end behavior or validation condition>
 
-## Validation
+## Validation evidence
 
-Command: `<command>`
+Command: `<focused command>`
 
 Result: not run
 
+Environment: <relevant toolchain/runtime details>
+
+Evidence: <output, artifact, or manual observation>
+
 ## Notes
 
-<Decisions, constraints, or links to relevant evidence.>
+<Decisions, constraints, or context pointers. Avoid speculative file lists.>
 
 ## Comments
