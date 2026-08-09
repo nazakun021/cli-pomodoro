@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import PomoCore
 
@@ -11,28 +12,12 @@ struct PomoCLI {
         let startConfiguration: SessionConfiguration?
 
         guard command != nil else {
-            if json {
-                let response = PublicResponse.failure(
-                    PublicError(
-                        code: "usage",
-                        message:
-                            "Interactive setup requires a terminal. Use `pomo start 25m` for a direct start.",
-                        exitCode: 2),
-                    command: "interactive")
-                let encoder = JSONEncoder()
-                encoder.outputFormatting = [.sortedKeys]
-                if let data = try? encoder.encode(response) {
-                    FileHandle.standardOutput.write(data)
-                    FileHandle.standardOutput.write(Data("\n".utf8))
-                }
-            } else {
-                FileHandle.standardError.write(
-                    Data(
-                        "Interactive setup requires a terminal. Use `pomo start 25m` or `pomo start 25m --json`.\n"
-                            .utf8)
-                )
+            guard !json, isatty(STDIN_FILENO) != 0, isatty(STDOUT_FILENO) != 0 else {
+                writeInteractiveUsageError(json: json)
+                Foundation.exit(2)
             }
-            Foundation.exit(2)
+            await runPlainSetup()
+            return
         }
 
         if command == "start" {
@@ -58,6 +43,50 @@ struct PomoCLI {
 
         let response = await commandResponse(
             command: command!, replace: replace, configuration: startConfiguration)
+        write(response, json: json)
+        if !response.ok {
+            Foundation.exit(Int32(response.error?.exitCode ?? 1))
+        }
+    }
+
+    private static func writeInteractiveUsageError(json: Bool) {
+        if json {
+            let response = PublicResponse.failure(
+                PublicError(
+                    code: "usage",
+                    message:
+                        "Interactive setup requires a terminal. Use `pomo start 25m` for a direct start.",
+                    exitCode: 2),
+                command: "interactive")
+            write(response, json: true)
+        } else {
+            FileHandle.standardError.write(
+                Data(
+                    "Interactive setup requires a terminal. Use `pomo start 25m` or `pomo start 25m --json`.\n"
+                        .utf8)
+            )
+        }
+    }
+
+    private static func runPlainSetup() async {
+        let configuration = SessionConfiguration.classic
+        print("Pomo setup")
+        print("Preset: Classic")
+        print("Focus: \(configuration.focusSeconds)s | Short Break: \(configuration.shortBreakSeconds)s | Long Break: \(configuration.longBreakSeconds)s")
+        print("Rounds: \(configuration.targetRounds ?? 0) | Auto-start Focus: \(configuration.autoStartFocus ? "on" : "off") | Auto-start Breaks: \(configuration.autoStartBreaks ? "on" : "off")")
+        print("Start this Session? [y/N]", terminator: " ")
+        guard let answer = readLine()?.lowercased(), answer == "y" || answer == "yes" else {
+            print("Setup cancelled.")
+            return
+        }
+        let response = await commandResponse(command: "start", replace: false, configuration: nil)
+        write(response, json: false)
+        if !response.ok {
+            Foundation.exit(Int32(response.error?.exitCode ?? 1))
+        }
+    }
+
+    private static func write(_ response: PublicResponse, json: Bool) {
         if json {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
@@ -76,9 +105,6 @@ struct PomoCLI {
             } else {
                 print("Pomo Agent is not running.")
             }
-        }
-        if !response.ok {
-            Foundation.exit(Int32(response.error?.exitCode ?? 1))
         }
     }
 

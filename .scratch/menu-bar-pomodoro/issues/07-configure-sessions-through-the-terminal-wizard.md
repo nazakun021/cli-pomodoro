@@ -21,3 +21,5 @@
 - Initial seam: public bare `pomo` process behavior, including its stdout/stderr text and usage exit code in a non-TTY invocation.
 - `swift run pomo` passed: bare non-TTY invocation prints explicit `pomo start 25m` and `pomo start 25m --json` alternatives to standard error and exits 2.
 - `swift run pomo --json` passed: standard output contains one JSON envelope with `error.code` `usage`, and the command exits 2.
+- TTY validation: bare `pomo` reached a line-oriented Classic review with complete duration, boundary, and auto-start values, followed by an explicit `Start this Session? [y/N]` confirmation.
+- `swift test` passed: 53 tests, 0 failures. `swift build` and touched-file diagnostics passed.
