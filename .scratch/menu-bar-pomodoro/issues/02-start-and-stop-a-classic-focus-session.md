@@ -21,3 +21,5 @@
 - `swift test --filter ClassicSessionTests` passed: an Agent-owned Classic Start creates a revision-1 Running Focus snapshot with the complete immutable Classic configuration.
 - `swift test` passed: 15 tests, 0 failures.
 - `swift build` passed without diagnostics.
+- `swift test --filter IPCEnvelopeTests` passed: accepted IPC Start returns a Running Focus snapshot and a later Status observes the same Session identity and revision.
+- `swift test` passed after IPC Start routing: 16 tests, 0 failures.

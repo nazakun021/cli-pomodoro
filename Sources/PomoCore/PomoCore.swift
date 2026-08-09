@@ -130,7 +130,9 @@ public struct AgentSnapshot: Codable, Equatable, Sendable {
         try container.encodeIfPresent(completedRounds, forKey: .completedRounds)
         if completedRounds == nil { try container.encodeNil(forKey: .completedRounds) }
         try container.encodeIfPresent(configuredDurationSeconds, forKey: .configuredDurationSeconds)
-        if configuredDurationSeconds == nil { try container.encodeNil(forKey: .configuredDurationSeconds) }
+        if configuredDurationSeconds == nil {
+            try container.encodeNil(forKey: .configuredDurationSeconds)
+        }
         try container.encodeIfPresent(remainingSeconds, forKey: .remainingSeconds)
         if remainingSeconds == nil { try container.encodeNil(forKey: .remainingSeconds) }
         try container.encodeNil(forKey: .sessionStartedAt)
@@ -150,9 +152,11 @@ public struct AgentSnapshot: Codable, Equatable, Sendable {
             sessionState: try container.decodeIfPresent(SessionState.self, forKey: .sessionState),
             phaseID: try container.decodeIfPresent(UUID.self, forKey: .phaseID),
             phaseType: try container.decodeIfPresent(PhaseType.self, forKey: .phaseType),
-            configuration: try container.decodeIfPresent(SessionConfiguration.self, forKey: .configuration),
+            configuration: try container.decodeIfPresent(
+                SessionConfiguration.self, forKey: .configuration),
             completedRounds: try container.decodeIfPresent(Int.self, forKey: .completedRounds),
-            configuredDurationSeconds: try container.decodeIfPresent(Int.self, forKey: .configuredDurationSeconds),
+            configuredDurationSeconds: try container.decodeIfPresent(
+                Int.self, forKey: .configuredDurationSeconds),
             remainingSeconds: try container.decodeIfPresent(Int.self, forKey: .remainingSeconds)
         )
     }
@@ -589,10 +593,20 @@ public final class LocalAgentServer: @unchecked Sendable {
                 let request = try? JSONDecoder().decode(IPCRequest.self, from: requestData),
                 request.messageType == "request",
                 request.protocolVersion == negotiation.version,
-                request.agentInstanceID == handshake.agentInstanceID,
-                request.command == IPCCommand(name: "status")
+                request.agentInstanceID == handshake.agentInstanceID
             else { return }
-            let snapshot = await agent.snapshot()
+            let snapshot: AgentSnapshot
+            switch request.command.name {
+            case "status":
+                snapshot = await agent.snapshot()
+            case "start":
+                guard request.command == IPCCommand(name: "start"),
+                    let started = try? await agent.startClassic()
+                else { return }
+                snapshot = started
+            default:
+                return
+            }
             let response = IPCResponse(
                 protocolVersion: negotiation.version,
                 requestID: request.requestID,
@@ -733,6 +747,14 @@ public struct LocalAgentClient: Sendable {
     }
 
     public func statusResponse(requestID: UUID) async throws -> IPCResponse {
+        try await commandResponse(command: "status", requestID: requestID)
+    }
+
+    public func startClassicResponse(requestID: UUID) async throws -> IPCResponse {
+        try await commandResponse(command: "start", requestID: requestID)
+    }
+
+    private func commandResponse(command: String, requestID: UUID) async throws -> IPCResponse {
         let descriptor = try LocalAgentServer.makeSocket()
         defer { Darwin.close(descriptor) }
         var address = try unixAddress(path)
@@ -769,7 +791,7 @@ public struct LocalAgentClient: Sendable {
                 requestID: requestID,
                 agentInstanceID: acknowledgement.agentInstanceID,
                 issuedAt: currentUTCTimestamp(),
-                command: IPCCommand(name: "status")
+                command: IPCCommand(name: command)
             )
         )
         guard LocalAgentServer.writeAll(try FrameCodec.encode(request), to: descriptor) else {
