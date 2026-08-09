@@ -685,7 +685,7 @@ public final class LocalAgentServer: @unchecked Sendable {
                     protocolVersion: negotiation.version,
                     requestID: request.requestID,
                     stateRevision: snapshot.revision,
-                    error: error.publicError(currentState: snapshot.agentState)
+                    error: error.publicError(snapshot: snapshot)
                 )
             } catch {
                 return
@@ -1077,33 +1077,54 @@ private func currentUTCTimestamp() -> String {
     return formatter.string(from: Date())
 }
 
+public struct AgentClock: Sendable {
+    public let monotonicNow: @Sendable () -> TimeInterval
+    public let wallNow: @Sendable () -> Date
+
+    public init(
+        monotonicNow: @escaping @Sendable () -> TimeInterval,
+        wallNow: @escaping @Sendable () -> Date
+    ) {
+        self.monotonicNow = monotonicNow
+        self.wallNow = wallNow
+    }
+
+    public static let system = AgentClock(
+        monotonicNow: { ProcessInfo.processInfo.systemUptime },
+        wallNow: Date.init
+    )
+}
+
 public actor PomoAgentCore {
     private static let mutationRetryWindow: TimeInterval = 300
     private static let maximumFutureRequestSkew: TimeInterval = 30
     private let agentInstanceID: UUID
     private let productVersion: String
+    private let clock: AgentClock
     private var revision: UInt64 = 0
     private var activeSession: ActiveSession?
     private var completedMutations: [UUID: CachedMutation] = [:]
 
-    public init(productVersion: String) {
+    public init(productVersion: String, clock: AgentClock = .system) {
         self.productVersion = productVersion
+        self.clock = clock
         agentInstanceID = UUID()
     }
 
     public func snapshot() -> AgentSnapshot {
         if let activeSession {
             let duration = activeSession.duration
-            let remaining = activeSession.remaining(at: Date())
+            let remaining = activeSession.remaining(at: clock.monotonicNow())
             return AgentSnapshot(
                 agentRunning: true, agentInstanceID: agentInstanceID, agentState: .session,
                 revision: revision, sessionID: activeSession.id, sessionState: activeSession.state,
                 phaseID: activeSession.phaseID, phaseType: activeSession.phaseType,
-                configuration: activeSession.configuration, completedRounds: 0,
+                configuration: activeSession.configuration,
+                completedRounds: activeSession.completedRounds,
                 configuredDurationSeconds: duration, remainingSeconds: remaining,
                 phaseStartedAt: activeSession.startedAt.map(timestamp),
-                expectedTransitionAt: activeSession.startedAt.map {
-                    timestamp($0.addingTimeInterval(Double(activeSession.remainingSeconds)))
+                expectedTransitionAt: activeSession.startedMonotonic.map { _ in
+                    timestamp(clock.wallNow().addingTimeInterval(Double(remaining)))
                 }
             )
         }
@@ -1117,7 +1138,7 @@ public actor PomoAgentCore {
 
     public func startClassic() throws -> AgentSnapshot {
         try startClassic(
-            requestID: UUID(), issuedAt: currentUTCTimestamp(), agentInstanceID: agentInstanceID,
+            requestID: UUID(), issuedAt: timestamp(clock.wallNow()), agentInstanceID: agentInstanceID,
             replace: false)
     }
 
@@ -1135,17 +1156,18 @@ public actor PomoAgentCore {
         guard activeSession == nil || replace else { throw AgentCommandError.sessionAlreadyActive }
         activeSession = ActiveSession(
             id: UUID(), phaseID: UUID(), configuration: .classic, phaseType: .focus,
-            state: .running, remainingSeconds: SessionConfiguration.classic.focusSeconds,
-            startedAt: Date())
+            state: .running, completedRounds: 0,
+            remainingSeconds: SessionConfiguration.classic.focusSeconds,
+            startedAt: clock.wallNow(), startedMonotonic: clock.monotonicNow())
         revision += 1
         let result = snapshot()
-        completedMutations[requestID] = CachedMutation(snapshot: result, completedAt: Date())
+        completedMutations[requestID] = CachedMutation(snapshot: result, completedAt: clock.wallNow())
         return result
     }
 
     public func pauseSession() throws -> AgentSnapshot {
         try pauseSession(
-            requestID: UUID(), issuedAt: currentUTCTimestamp(), agentInstanceID: agentInstanceID)
+            requestID: UUID(), issuedAt: timestamp(clock.wallNow()), agentInstanceID: agentInstanceID)
     }
 
     fileprivate func pauseSession(
@@ -1159,21 +1181,21 @@ public actor PomoAgentCore {
             return cached
         }
         guard let activeSession else { throw AgentCommandError.noActiveSession }
-        guard activeSession.phaseType == .focus, activeSession.state == .running else {
+        guard activeSession.state == .running else {
             throw AgentCommandError.invalidTransition
         }
-        let remaining = activeSession.remaining(at: Date())
+        let remaining = activeSession.remaining(at: clock.monotonicNow())
         guard remaining > 0 else { throw AgentCommandError.invalidTransition }
         self.activeSession = activeSession.paused(remainingSeconds: remaining)
         revision += 1
         let result = snapshot()
-        completedMutations[requestID] = CachedMutation(snapshot: result, completedAt: Date())
+        completedMutations[requestID] = CachedMutation(snapshot: result, completedAt: clock.wallNow())
         return result
     }
 
     public func resumeSession() throws -> AgentSnapshot {
         try resumeSession(
-            requestID: UUID(), issuedAt: currentUTCTimestamp(), agentInstanceID: agentInstanceID)
+            requestID: UUID(), issuedAt: timestamp(clock.wallNow()), agentInstanceID: agentInstanceID)
     }
 
     fileprivate func resumeSession(
@@ -1187,19 +1209,35 @@ public actor PomoAgentCore {
             return cached
         }
         guard let activeSession else { throw AgentCommandError.noActiveSession }
-        guard activeSession.phaseType == .focus, activeSession.state == .paused else {
+        guard activeSession.state == .paused || activeSession.state == .ready else {
             throw AgentCommandError.invalidTransition
         }
-        self.activeSession = activeSession.running(from: Date())
+        self.activeSession = activeSession.running(
+            from: clock.wallNow(), monotonicTime: clock.monotonicNow())
         revision += 1
         let result = snapshot()
-        completedMutations[requestID] = CachedMutation(snapshot: result, completedAt: Date())
+        completedMutations[requestID] = CachedMutation(snapshot: result, completedAt: clock.wallNow())
         return result
+    }
+
+    public func handleSleep() -> AgentSnapshot {
+        guard let activeSession, activeSession.state == .running else { return snapshot() }
+        let remaining = activeSession.remaining(at: clock.monotonicNow())
+        guard remaining > 0 else {
+            self.activeSession = activeSession.completed(
+                wallTime: clock.wallNow(), monotonicTime: clock.monotonicNow())
+            revision += 1
+            return snapshot()
+        }
+
+        self.activeSession = activeSession.paused(remainingSeconds: remaining)
+        revision += 1
+        return snapshot()
     }
 
     public func skipPhase() throws -> AgentSnapshot {
         try skipPhase(
-            requestID: UUID(), issuedAt: currentUTCTimestamp(), agentInstanceID: agentInstanceID)
+            requestID: UUID(), issuedAt: timestamp(clock.wallNow()), agentInstanceID: agentInstanceID)
     }
 
     fileprivate func skipPhase(
@@ -1219,16 +1257,18 @@ public actor PomoAgentCore {
         self.activeSession = ActiveSession(
             id: activeSession.id, phaseID: UUID(), configuration: activeSession.configuration,
             phaseType: .shortBreak, state: .running,
-            remainingSeconds: activeSession.configuration.shortBreakSeconds, startedAt: Date())
+            completedRounds: activeSession.completedRounds,
+            remainingSeconds: activeSession.configuration.shortBreakSeconds,
+            startedAt: clock.wallNow(), startedMonotonic: clock.monotonicNow())
         revision += 1
         let result = snapshot()
-        completedMutations[requestID] = CachedMutation(snapshot: result, completedAt: Date())
+        completedMutations[requestID] = CachedMutation(snapshot: result, completedAt: clock.wallNow())
         return result
     }
 
     public func stopSession() throws -> AgentSnapshot {
         try stopSession(
-            requestID: UUID(), issuedAt: currentUTCTimestamp(), agentInstanceID: agentInstanceID)
+            requestID: UUID(), issuedAt: timestamp(clock.wallNow()), agentInstanceID: agentInstanceID)
     }
 
     fileprivate func stopSession(
@@ -1245,7 +1285,7 @@ public actor PomoAgentCore {
         activeSession = nil
         revision += 1
         let result = snapshot()
-        completedMutations[requestID] = CachedMutation(snapshot: result, completedAt: Date())
+        completedMutations[requestID] = CachedMutation(snapshot: result, completedAt: clock.wallNow())
         return result
     }
 
@@ -1260,7 +1300,7 @@ public actor PomoAgentCore {
         guard let requestDate = parseUTCTimestamp(issuedAt) else {
             throw AgentCommandError.invalidRequestTimestamp
         }
-        let now = Date()
+        let now = clock.wallNow()
         guard requestDate <= now.addingTimeInterval(Self.maximumFutureRequestSkew) else {
             throw AgentCommandError.requestFromFuture
         }
@@ -1293,24 +1333,37 @@ public enum AgentCommandError: Error, Equatable, Sendable {
     case invalidRequestTimestamp
     case invalidTransition
 
-    fileprivate func publicError(currentState: AgentState) -> PublicError {
+    fileprivate func publicError(snapshot: AgentSnapshot) -> PublicError {
+        let currentState = snapshot.sessionState?.rawValue ?? snapshot.agentState.rawValue
+        let validActions: String
+        switch snapshot.sessionState {
+        case .running:
+            validActions = "pause, skip, stop"
+        case .paused, .ready:
+            validActions = "resume, skip, stop"
+        case .blocked:
+            validActions = "retry, export"
+        case nil:
+            validActions = "start"
+        }
+
         switch self {
         case .sessionAlreadyActive:
             return PublicError(
                 code: "invalid_state",
                 message:
-                    "A Session is already active. Current state: \(currentState.rawValue). Valid next actions: stop.",
+                    "A Session is already active. Current state: \(currentState). Valid next actions: \(validActions).",
                 exitCode: 3)
         case .noActiveSession:
             return PublicError(
                 code: "invalid_state",
-                message:
-                    "No Session is active. Current state: \(currentState.rawValue). Valid next actions: start.",
+                message: "No Session is active. Current state: \(currentState). Valid next actions: \(validActions).",
                 exitCode: 3)
         case .invalidTransition:
             return PublicError(
                 code: "invalid_state",
-                message: "The current Phase does not accept that action.",
+                message:
+                    "The current Phase does not accept that action. Current state: \(currentState). Valid next actions: \(validActions).",
                 exitCode: 3)
         case .requestExpired:
             return PublicError(
@@ -1340,8 +1393,10 @@ private struct ActiveSession: Sendable {
     let configuration: SessionConfiguration
     let phaseType: PhaseType
     let state: SessionState
+    let completedRounds: Int
     let remainingSeconds: Int
     let startedAt: Date?
+    let startedMonotonic: TimeInterval?
 
     var duration: Int {
         switch phaseType {
@@ -1351,21 +1406,57 @@ private struct ActiveSession: Sendable {
         }
     }
 
-    func remaining(at date: Date) -> Int {
-        guard let startedAt else { return remainingSeconds }
-        return max(0, Int(ceil(Double(remainingSeconds) - date.timeIntervalSince(startedAt))))
+    func remaining(at monotonicTime: TimeInterval) -> Int {
+        guard let startedMonotonic else { return remainingSeconds }
+        return max(0, Int(ceil(Double(remainingSeconds) - (monotonicTime - startedMonotonic))))
     }
 
     func paused(remainingSeconds: Int) -> ActiveSession {
         ActiveSession(
             id: id, phaseID: phaseID, configuration: configuration, phaseType: phaseType,
-            state: .paused, remainingSeconds: remainingSeconds, startedAt: nil)
+            state: .paused, completedRounds: completedRounds, remainingSeconds: remainingSeconds,
+            startedAt: nil,
+            startedMonotonic: nil)
     }
 
-    func running(from date: Date) -> ActiveSession {
+    func running(from date: Date, monotonicTime: TimeInterval) -> ActiveSession {
         ActiveSession(
             id: id, phaseID: phaseID, configuration: configuration, phaseType: phaseType,
-            state: .running, remainingSeconds: remainingSeconds, startedAt: date)
+            state: .running, completedRounds: completedRounds, remainingSeconds: remainingSeconds,
+            startedAt: date,
+            startedMonotonic: monotonicTime)
+    }
+
+    func completed(wallTime: Date, monotonicTime: TimeInterval) -> ActiveSession? {
+        switch phaseType {
+        case .focus:
+            let completedRounds = completedRounds + 1
+            if !configuration.openEnded,
+                let targetRounds = configuration.targetRounds,
+                completedRounds >= targetRounds
+            {
+                return nil
+            }
+            let nextPhase: PhaseType =
+                completedRounds.isMultiple(of: configuration.longBreakEvery)
+                ? .longBreak : .shortBreak
+            let duration = nextPhase == .longBreak
+                ? configuration.longBreakSeconds : configuration.shortBreakSeconds
+            let state: SessionState = configuration.autoStartBreaks ? .running : .ready
+            return ActiveSession(
+                id: id, phaseID: UUID(), configuration: configuration, phaseType: nextPhase,
+                state: state, completedRounds: completedRounds, remainingSeconds: duration,
+                startedAt: state == .running ? wallTime : nil,
+                startedMonotonic: state == .running ? monotonicTime : nil)
+        case .shortBreak, .longBreak:
+            let state: SessionState = configuration.autoStartFocus ? .running : .ready
+            return ActiveSession(
+                id: id, phaseID: UUID(), configuration: configuration, phaseType: .focus,
+                state: state, completedRounds: completedRounds,
+                remainingSeconds: configuration.focusSeconds,
+                startedAt: state == .running ? wallTime : nil,
+                startedMonotonic: state == .running ? monotonicTime : nil)
+        }
     }
 }
 

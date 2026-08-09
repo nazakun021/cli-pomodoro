@@ -26,12 +26,22 @@ private final class IdleStatusItem: NSObject {
     private let server: LocalAgentServer
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var refreshTimer: Timer?
+    private var sleepObserver: NSObjectProtocol?
 
     init(agent: PomoAgentCore, server: LocalAgentServer) {
         self.agent = agent
         self.server = server
         super.init()
         refresh()
+        sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                _ = await self.agent.handleSleep()
+                self.refresh()
+            }
+        }
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.refresh()
@@ -66,10 +76,10 @@ private final class IdleStatusItem: NSObject {
             menu.addItem(withTitle: "\(phase) - \(state)", action: nil, keyEquivalent: "")
             menu.addItem(withTitle: rounds, action: nil, keyEquivalent: "")
             menu.addItem(.separator())
-            if snapshot.phaseType == .focus, snapshot.sessionState == .running {
+            if snapshot.sessionState == .running {
                 menu.addItem(withTitle: "Pause", action: #selector(pauseSession), keyEquivalent: "")
                 menu.items.last?.target = self
-            } else if snapshot.phaseType == .focus, snapshot.sessionState == .paused {
+            } else if snapshot.sessionState == .paused {
                 menu.addItem(
                     withTitle: "Resume", action: #selector(resumeSession), keyEquivalent: "")
                 menu.items.last?.target = self
@@ -140,6 +150,9 @@ private final class IdleStatusItem: NSObject {
 
     @objc private func quit() {
         refreshTimer?.invalidate()
+        if let sleepObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(sleepObserver)
+        }
         server.stop()
         NSApp.terminate(nil)
     }

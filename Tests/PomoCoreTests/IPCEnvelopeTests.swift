@@ -80,8 +80,8 @@ final class IPCEnvelopeTests: XCTestCase {
         XCTAssertFalse(rejected.ok)
         XCTAssertEqual(rejected.error?.code, "invalid_state")
         XCTAssertEqual(rejected.error?.exitCode, 3)
-        XCTAssertTrue(rejected.error?.message.contains("Current state: session") == true)
-        XCTAssertTrue(rejected.error?.message.contains("Valid next actions: stop") == true)
+        XCTAssertTrue(rejected.error?.message.contains("Current state: running") == true)
+        XCTAssertTrue(rejected.error?.message.contains("Valid next actions: pause, skip, stop") == true)
         XCTAssertEqual(observed.result?.sessionID, first.result?.sessionID)
         XCTAssertEqual(observed.result?.revision, first.result?.revision)
     }
@@ -166,6 +166,23 @@ final class IPCEnvelopeTests: XCTestCase {
         XCTAssertNotNil(resumed.result?.expectedTransitionAt)
     }
 
+    func testInvalidPauseReportsCurrentStateAndValidActions() async throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path
+        let server = try LocalAgentServer(path: path, agent: PomoAgentCore(productVersion: "0.1.0"))
+        defer { server.stop() }
+        let client = LocalAgentClient(path: path)
+        _ = try await client.startClassicResponse(requestID: UUID())
+        _ = try await client.pauseResponse(requestID: UUID())
+
+        let rejected = try await client.pauseResponse(requestID: UUID())
+
+        XCTAssertFalse(rejected.ok)
+        XCTAssertEqual(rejected.error?.code, "invalid_state")
+        XCTAssertTrue(rejected.error?.message.contains("Current state: paused") == true)
+        XCTAssertTrue(rejected.error?.message.contains("Valid next actions: resume, skip, stop") == true)
+    }
+
     func testSkipFocusTransitionsToShortBreakWithoutCompletingRound() async throws {
         let path = FileManager.default.temporaryDirectory
             .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path
@@ -184,7 +201,10 @@ final class IPCEnvelopeTests: XCTestCase {
         XCTAssertEqual(
             skipped.result?.remainingSeconds, SessionConfiguration.classic.shortBreakSeconds)
         XCTAssertEqual(skipped.result?.completedRounds, 0)
-        XCTAssertEqual(observed.result, skipped.result)
+        XCTAssertEqual(observed.result?.sessionID, skipped.result?.sessionID)
+        XCTAssertEqual(observed.result?.phaseID, skipped.result?.phaseID)
+        XCTAssertEqual(observed.result?.revision, skipped.result?.revision)
+        XCTAssertEqual(observed.result?.sessionState, skipped.result?.sessionState)
     }
 }
 

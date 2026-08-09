@@ -20,3 +20,7 @@
 - Agent-owned `pause` and `resume` IPC mutations now preserve the Focus Session and Phase IDs. Pause captures a positive rounded remaining duration, returns a Paused snapshot with no running wall-clock estimates, and Resume starts the same Focus Phase from that remainder.
 - `swift test --filter IPCEnvelopeTests` passed: socket-level command/snapshot coverage verifies pause freezing, resumed running estimates, and unchanged remaining time across the Paused observation.
 - `swift test` passed: 32 tests, 0 failures. `swift build` passed without diagnostics.
+- `swift test --filter TimingTests` passed: injected monotonic/wall clocks prove elapsed time ignores wall-clock jumps, sleep preserves a positive remainder, a reached Focus deadline transitions before sleep, and Break Phases pause and resume correctly.
+- `swift test --filter TimingTests` passed after review: sleep-time Phase completion follows the finite four-Round Session boundary and Resume accepts the resulting Ready Focus Phase.
+- `swift test --filter IPCEnvelopeTests` passed: invalid pause reports the Paused state and its valid actions; snapshots retain stable Session identity while expected wall transitions are recalculated.
+- `swift build` passed after connecting `NSWorkspace.willSleepNotification` to the Agent-owned sleep transition.
