@@ -18,3 +18,5 @@
 ## Validation evidence
 
 - Agreed seam: the Agent-owned Unix socket Follow connection and its public NDJSON adapter. Current server behavior closes after one response, so Follow must be implemented as a protocol extension rather than CLI polling.
+- `swift test --filter IPCEnvelopeTests/testFollowInitialSnapshotEventRoundTripsWithSequenceZero` passed: the shared Follow event begins at sequence zero with a schema-stable `initial_snapshot` payload and nullable error.
+- `swift test` passed after the schema addition; touched-file diagnostics are clean.

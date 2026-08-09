@@ -3,6 +3,22 @@ import PomoCore
 import XCTest
 
 final class IPCEnvelopeTests: XCTestCase {
+    func testFollowInitialSnapshotEventRoundTripsWithSequenceZero() throws {
+        let snapshot = AgentSnapshot(
+            agentRunning: true,
+            agentInstanceID: UUID(),
+            agentState: .idle,
+            revision: 0)
+        let event = FollowEvent.initialSnapshot(snapshot)
+
+        let decoded = try JSONDecoder().decode(FollowEvent.self, from: JSONEncoder().encode(event))
+
+        XCTAssertEqual(decoded.sequence, 0)
+        XCTAssertEqual(decoded.kind, .initialSnapshot)
+        XCTAssertEqual(decoded.snapshot, snapshot)
+        XCTAssertNil(decoded.error)
+    }
+
     func testStatusResponseEchoesRequestIDAndNegotiatedProtocol() async throws {
         let path = FileManager.default.temporaryDirectory
             .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path

@@ -952,6 +952,44 @@ public struct IPCResponse: Codable, Equatable, Sendable {
     }
 }
 
+public enum FollowEventKind: String, Codable, Sendable {
+    case initialSnapshot = "initial_snapshot"
+    case tick
+    case transition
+    case sessionEnded = "session_ended"
+    case backpressure
+}
+
+public struct FollowEvent: Codable, Equatable, Sendable {
+    public let sequence: UInt64
+    public let kind: FollowEventKind
+    public let snapshot: AgentSnapshot?
+    public let error: PublicError?
+
+    public init(
+        sequence: UInt64,
+        kind: FollowEventKind,
+        snapshot: AgentSnapshot?,
+        error: PublicError? = nil
+    ) {
+        self.sequence = sequence
+        self.kind = kind
+        self.snapshot = snapshot
+        self.error = error
+    }
+
+    public static func initialSnapshot(_ snapshot: AgentSnapshot) -> FollowEvent {
+        FollowEvent(sequence: 0, kind: .initialSnapshot, snapshot: snapshot)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sequence
+        case kind = "event_type"
+        case snapshot
+        case error
+    }
+}
+
 public enum RuntimeEndpoint {
     public static func socketPath() -> String {
         runtimeDirectory(in: FileManager.default.temporaryDirectory)
