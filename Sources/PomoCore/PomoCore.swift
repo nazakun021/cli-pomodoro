@@ -1147,6 +1147,9 @@ public final class LocalAgentServer: @unchecked Sendable {
                 case "status":
                     guard request.command == IPCCommand(name: "status") else { return }
                     snapshot = await agent.snapshot()
+                case "follow":
+                    guard request.command == IPCCommand(name: "follow") else { return }
+                    snapshot = await agent.snapshot()
                 case "start":
                     snapshot = try await agent.startClassic(
                         requestID: request.requestID,
@@ -1204,6 +1207,9 @@ public final class LocalAgentServer: @unchecked Sendable {
                 return
             }
             _ = Self.writeJSON(response, to: client)
+            if request.command.name == "follow" {
+                _ = Self.writeJSON(FollowEvent.initialSnapshot(await agent.snapshot()), to: client)
+            }
         }
         responseWritten.wait()
     }
@@ -1390,8 +1396,16 @@ public struct LocalAgentClient: Sendable {
         try await mutationResponse(command: "skip")
     }
 
+    public func followInitialEvent() async throws -> FollowEvent {
+        let result = try await commandResponse(command: "follow", requestID: UUID(), follow: true)
+        guard result.response.ok, let event = result.event else {
+            throw LocalAgentTransportError.invalidResponse
+        }
+        return event
+    }
+
     public func statusResponse(requestID: UUID) async throws -> IPCResponse {
-        try await commandResponse(command: "status", requestID: requestID)
+        try await commandResponse(command: "status", requestID: requestID).response
     }
 
     public func startClassicResponse(
@@ -1402,7 +1416,7 @@ public struct LocalAgentClient: Sendable {
     ) async throws -> IPCResponse {
         try await commandResponse(
             command: "start", requestID: requestID, replace: replace, issuedAt: issuedAt,
-            agentInstanceID: agentInstanceID)
+            agentInstanceID: agentInstanceID).response
     }
 
     public func startResponse(
@@ -1412,7 +1426,7 @@ public struct LocalAgentClient: Sendable {
     ) async throws -> IPCResponse {
         try await commandResponse(
             command: "start", requestID: requestID, replace: replace,
-            configuration: configuration)
+            configuration: configuration).response
     }
 
     public func stopResponse(
@@ -1422,7 +1436,7 @@ public struct LocalAgentClient: Sendable {
     ) async throws -> IPCResponse {
         try await commandResponse(
             command: "stop", requestID: requestID, issuedAt: issuedAt,
-            agentInstanceID: agentInstanceID)
+            agentInstanceID: agentInstanceID).response
     }
 
     public func pauseResponse(
@@ -1432,7 +1446,7 @@ public struct LocalAgentClient: Sendable {
     ) async throws -> IPCResponse {
         try await commandResponse(
             command: "pause", requestID: requestID, issuedAt: issuedAt,
-            agentInstanceID: agentInstanceID)
+            agentInstanceID: agentInstanceID).response
     }
 
     public func resumeResponse(
@@ -1442,7 +1456,7 @@ public struct LocalAgentClient: Sendable {
     ) async throws -> IPCResponse {
         try await commandResponse(
             command: "resume", requestID: requestID, issuedAt: issuedAt,
-            agentInstanceID: agentInstanceID)
+            agentInstanceID: agentInstanceID).response
     }
 
     public func skipResponse(
@@ -1452,11 +1466,11 @@ public struct LocalAgentClient: Sendable {
     ) async throws -> IPCResponse {
         try await commandResponse(
             command: "skip", requestID: requestID, issuedAt: issuedAt,
-            agentInstanceID: agentInstanceID)
+            agentInstanceID: agentInstanceID).response
     }
 
     private func mutationResponse(command: String) async throws -> PublicResponse {
-        let response = try await commandResponse(command: command, requestID: UUID())
+        let response = try await commandResponse(command: command, requestID: UUID()).response
         guard response.ok, let snapshot = response.result else {
             return .failure(
                 response.error
@@ -1468,14 +1482,20 @@ public struct LocalAgentClient: Sendable {
         return PublicResponse.success(command: command, snapshot: snapshot)
     }
 
+    private struct CommandResult {
+        let response: IPCResponse
+        let event: FollowEvent?
+    }
+
     private func commandResponse(
         command: String,
         requestID: UUID,
         replace: Bool = false,
         issuedAt: String? = nil,
         agentInstanceID: UUID? = nil,
-        configuration: SessionConfiguration? = nil
-    ) async throws -> IPCResponse {
+        configuration: SessionConfiguration? = nil,
+        follow: Bool = false
+    ) async throws -> CommandResult {
         let descriptor = try LocalAgentServer.makeSocket()
         defer { Darwin.close(descriptor) }
         var address = try unixAddress(path)
@@ -1527,7 +1547,14 @@ public struct LocalAgentClient: Sendable {
         else {
             throw LocalAgentTransportError.invalidResponse
         }
-        return decoded
+        let event: FollowEvent?
+        if follow {
+            let eventData = try LocalAgentServer.readFrame(from: descriptor)
+            event = try JSONDecoder().decode(FollowEvent.self, from: eventData)
+        } else {
+            event = nil
+        }
+        return CommandResult(response: decoded, event: event)
     }
 }
 

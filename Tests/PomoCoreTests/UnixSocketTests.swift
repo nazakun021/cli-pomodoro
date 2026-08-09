@@ -4,6 +4,19 @@ import PomoCore
 import XCTest
 
 final class UnixSocketTests: XCTestCase {
+    func testFollowReceivesInitialSnapshotEventAfterAcknowledgement() async throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path
+        let server = try LocalAgentServer(path: path, agent: PomoAgentCore(productVersion: "0.1.0"))
+        defer { server.stop() }
+
+        let event = try await LocalAgentClient(path: path).followInitialEvent()
+
+        XCTAssertEqual(event.sequence, 0)
+        XCTAssertEqual(event.kind, .initialSnapshot)
+        XCTAssertEqual(event.snapshot?.agentState, .idle)
+    }
+
     func testStatusOverSocketReturnsReachableIdleSnapshot() async throws {
         let path = FileManager.default.temporaryDirectory
             .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path
