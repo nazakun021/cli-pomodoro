@@ -16,6 +16,11 @@ struct PomoCLI {
                 writeInteractiveUsageError(json: json)
                 Foundation.exit(2)
             }
+            guard !replace else {
+                FileHandle.standardError.write(
+                    Data("`--replace` is available only with `pomo start`.\n".utf8))
+                Foundation.exit(2)
+            }
             await runPlainSetup()
             return
         }
@@ -172,8 +177,9 @@ struct PomoCLI {
     }
 
     private static func selectPreset() async -> Preset? {
-        guard let discovery = try? await LocalAgentClient(path: RuntimeEndpoint.socketPath())
-            .presetDiscovery()
+        guard
+            let discovery = try? await LocalAgentClient(path: RuntimeEndpoint.socketPath())
+                .presetDiscovery()
         else { return .classic }
         var choices = [discovery.defaultPreset] + discovery.recentPresets
         choices += discovery.presets.filter { preset in

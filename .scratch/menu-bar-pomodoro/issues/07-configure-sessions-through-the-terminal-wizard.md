@@ -31,6 +31,8 @@
 - Preset discovery is now available to the terminal wizard; implement the selection prompts next.
 - Plain setup now presents default, recent, and remaining named Presets from Agent discovery. The selected Preset supplies the editable values and is named again in Review.
 - Validation: `swift build` and `swift test` passed; CLI diagnostics and `git diff --check` are clean.
+- Bare `pomo --replace` now exits 2 with direct `pomo start` guidance, ensuring interactive replacement is only confirmed from Review.
+- Validation: `swift build`, the direct bare-flag behavior check, and `swift test` passed; CLI diagnostics are clean.
 
 ## Comments
 
