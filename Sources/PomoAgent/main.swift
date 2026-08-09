@@ -52,7 +52,7 @@ private final class IdleStatusItem: NSObject {
         if snapshot.agentState == .session {
             item.button?.image = NSImage(
                 systemSymbolName: "timer", accessibilityDescription: "Pomo Focus Running")
-            item.button?.title = "25:00"
+            item.button?.title = formatRemaining(snapshot.remainingSeconds ?? 0)
             menu.addItem(withTitle: "Focus - Running", action: nil, keyEquivalent: "")
             menu.addItem(withTitle: "Round 1 of 4", action: nil, keyEquivalent: "")
             menu.addItem(.separator())
@@ -60,14 +60,16 @@ private final class IdleStatusItem: NSObject {
             pause.isEnabled = false
             let skip = menu.addItem(withTitle: "Skip", action: nil, keyEquivalent: "")
             skip.isEnabled = false
-            menu.addItem(withTitle: "Stop Session", action: #selector(confirmStop), keyEquivalent: "")
+            menu.addItem(
+                withTitle: "Stop Session", action: #selector(confirmStop), keyEquivalent: "")
             menu.items.last?.target = self
         } else {
             item.button?.title = ""
             item.button?.image = NSImage(
                 systemSymbolName: "timer", accessibilityDescription: "Pomo Idle")
             menu.addItem(withTitle: "No Session", action: nil, keyEquivalent: "")
-            menu.addItem(withTitle: "Start Classic", action: #selector(startClassic), keyEquivalent: "")
+            menu.addItem(
+                withTitle: "Start Classic", action: #selector(startClassic), keyEquivalent: "")
             menu.items.last?.target = self
         }
         menu.addItem(.separator())
@@ -100,5 +102,10 @@ private final class IdleStatusItem: NSObject {
         refreshTimer?.invalidate()
         server.stop()
         NSApp.terminate(nil)
+    }
+
+    private func formatRemaining(_ seconds: Int) -> String {
+        let minutes = seconds / 60
+        return String(format: "%02d:%02d", minutes, seconds % 60)
     }
 }

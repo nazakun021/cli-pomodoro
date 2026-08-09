@@ -53,6 +53,8 @@ public struct AgentSnapshot: Codable, Equatable, Sendable {
     public let completedRounds: Int?
     public let configuredDurationSeconds: Int?
     public let remainingSeconds: Int?
+    public let phaseStartedAt: String?
+    public let expectedTransitionAt: String?
 
     public init(
         agentRunning: Bool,
@@ -68,7 +70,9 @@ public struct AgentSnapshot: Codable, Equatable, Sendable {
         configuration: SessionConfiguration? = nil,
         completedRounds: Int? = nil,
         configuredDurationSeconds: Int? = nil,
-        remainingSeconds: Int? = nil
+        remainingSeconds: Int? = nil,
+        phaseStartedAt: String? = nil,
+        expectedTransitionAt: String? = nil
     ) {
         self.agentRunning = agentRunning
         self.agentInstanceID = agentInstanceID
@@ -84,6 +88,8 @@ public struct AgentSnapshot: Codable, Equatable, Sendable {
         self.completedRounds = completedRounds
         self.configuredDurationSeconds = configuredDurationSeconds
         self.remainingSeconds = remainingSeconds
+        self.phaseStartedAt = phaseStartedAt
+        self.expectedTransitionAt = expectedTransitionAt
     }
 
     enum CodingKeys: String, CodingKey {
@@ -136,8 +142,10 @@ public struct AgentSnapshot: Codable, Equatable, Sendable {
         try container.encodeIfPresent(remainingSeconds, forKey: .remainingSeconds)
         if remainingSeconds == nil { try container.encodeNil(forKey: .remainingSeconds) }
         try container.encodeNil(forKey: .sessionStartedAt)
-        try container.encodeNil(forKey: .phaseStartedAt)
-        try container.encodeNil(forKey: .expectedTransitionAt)
+        try container.encodeIfPresent(phaseStartedAt, forKey: .phaseStartedAt)
+        if phaseStartedAt == nil { try container.encodeNil(forKey: .phaseStartedAt) }
+        try container.encodeIfPresent(expectedTransitionAt, forKey: .expectedTransitionAt)
+        if expectedTransitionAt == nil { try container.encodeNil(forKey: .expectedTransitionAt) }
         try container.encodeNil(forKey: .recovery)
     }
 
@@ -157,7 +165,9 @@ public struct AgentSnapshot: Codable, Equatable, Sendable {
             completedRounds: try container.decodeIfPresent(Int.self, forKey: .completedRounds),
             configuredDurationSeconds: try container.decodeIfPresent(
                 Int.self, forKey: .configuredDurationSeconds),
-            remainingSeconds: try container.decodeIfPresent(Int.self, forKey: .remainingSeconds)
+            remainingSeconds: try container.decodeIfPresent(Int.self, forKey: .remainingSeconds),
+            phaseStartedAt: try container.decodeIfPresent(String.self, forKey: .phaseStartedAt),
+            expectedTransitionAt: try container.decodeIfPresent(String.self, forKey: .expectedTransitionAt)
         )
     }
 }
@@ -934,13 +944,16 @@ public actor PomoAgentCore {
 
     public func snapshot() -> AgentSnapshot {
         if let activeSession {
+            let duration = activeSession.configuration.focusSeconds
+            let remaining = max(0, Int(ceil(Double(duration) - Date().timeIntervalSince(activeSession.startedAt))))
             return AgentSnapshot(
                 agentRunning: true, agentInstanceID: agentInstanceID, agentState: .session,
                 revision: revision, sessionID: activeSession.id, sessionState: .running,
                 phaseID: activeSession.phaseID, phaseType: .focus,
                 configuration: activeSession.configuration, completedRounds: 0,
-                configuredDurationSeconds: activeSession.configuration.focusSeconds,
-                remainingSeconds: activeSession.configuration.focusSeconds
+                configuredDurationSeconds: duration, remainingSeconds: remaining,
+                phaseStartedAt: timestamp(activeSession.startedAt),
+                expectedTransitionAt: timestamp(activeSession.startedAt.addingTimeInterval(Double(duration)))
             )
         }
         return AgentSnapshot(
@@ -953,7 +966,8 @@ public actor PomoAgentCore {
 
     public func startClassic() throws -> AgentSnapshot {
         guard activeSession == nil else { throw AgentCommandError.sessionAlreadyActive }
-        activeSession = ActiveSession(id: UUID(), phaseID: UUID(), configuration: .classic)
+        activeSession = ActiveSession(
+            id: UUID(), phaseID: UUID(), configuration: .classic, startedAt: Date())
         revision += 1
         return snapshot()
     }
@@ -985,6 +999,13 @@ private struct ActiveSession: Sendable {
     let id: UUID
     let phaseID: UUID
     let configuration: SessionConfiguration
+    let startedAt: Date
+}
+
+private func timestamp(_ date: Date) -> String {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter.string(from: date)
 }
 
 private struct AgentHandshakeInfo: Sendable {

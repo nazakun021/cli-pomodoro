@@ -30,3 +30,4 @@
 - `swift run PomoAgent`, `pomo start --json`, `pomo stop --json`, and `pomo status --json` demonstrated a direct CLI Stop with no prompt and the expected Idle result.
 - `swift test` passed after IPC/CLI Stop: 18 tests, 0 failures; `swift build` passed without diagnostics.
 - Native menu validation: the status item now refreshes from the Agent snapshot, presents Start Classic while Idle, and presents Focus/round context with confirmed Stop while a Session is active.
+- Timing validation: Running Focus snapshots include Agent-derived phase-start and expected-transition UTC values, rounded-up remaining seconds, and the menu renders that shared remaining value.

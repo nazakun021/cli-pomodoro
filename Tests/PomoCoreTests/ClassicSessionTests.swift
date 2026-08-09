@@ -13,6 +13,8 @@ final class ClassicSessionTests: XCTestCase {
         XCTAssertEqual(snapshot.configuration, .classic)
         XCTAssertEqual(snapshot.completedRounds, 0)
         XCTAssertEqual(snapshot.remainingSeconds, 1_500)
+        XCTAssertNotNil(snapshot.phaseStartedAt)
+        XCTAssertNotNil(snapshot.expectedTransitionAt)
         XCTAssertEqual(snapshot.revision, 1)
     }
 
