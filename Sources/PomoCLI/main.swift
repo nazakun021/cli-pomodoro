@@ -10,6 +10,31 @@ struct PomoCLI {
         let command = arguments.first(where: { !$0.hasPrefix("-") })
         let startConfiguration: SessionConfiguration?
 
+        guard command != nil else {
+            if json {
+                let response = PublicResponse.failure(
+                    PublicError(
+                        code: "usage",
+                        message:
+                            "Interactive setup requires a terminal. Use `pomo start 25m` for a direct start.",
+                        exitCode: 2),
+                    command: "interactive")
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.sortedKeys]
+                if let data = try? encoder.encode(response) {
+                    FileHandle.standardOutput.write(data)
+                    FileHandle.standardOutput.write(Data("\n".utf8))
+                }
+            } else {
+                FileHandle.standardError.write(
+                    Data(
+                        "Interactive setup requires a terminal. Use `pomo start 25m` or `pomo start 25m --json`.\n"
+                            .utf8)
+                )
+            }
+            Foundation.exit(2)
+        }
+
         if command == "start" {
             do { startConfiguration = try parseStartConfiguration(arguments) } catch {
                 FileHandle.standardError.write(Data("Invalid start options.\n".utf8))

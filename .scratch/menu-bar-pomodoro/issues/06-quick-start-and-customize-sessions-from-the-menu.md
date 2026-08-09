@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — Run complete finite and open-ended Pomodoro cycles; 05 — Manage named Presets and the default
 
-**Status:** claimed
+**Status:** blocked
 
 - [ ] The Idle menu leads with the default Preset followed by up to three distinct most-recent non-default Presets, then Custom Session.
 - [ ] Accepted starts from menu, direct CLI, or later interactive setup update one monotonic Preset recency sequence transactionally before acknowledgment.
@@ -24,3 +24,7 @@
 - `swift build` passed: the idle-menu Quick Start commands and 360-point SwiftUI Custom Session popover compile with the Agent integration.
 - `swift test` passed: 53 tests, 0 failures. `get_errors` reported no diagnostics in touched Core, Agent, or test files; `git diff --check` passed.
 - Native UI automation and manual VoiceOver/increased-text verification remain pending because this package has no UI-test target and the current environment cannot exercise the status-item popover.
+
+## Comments
+
+- 2026-08-10: Blocked pending manual native verification of the status-item popover at 360 points, keyboard focus, VoiceOver labels, and increased-text behavior. Automated Core/IPC coverage and `swift build` pass.
