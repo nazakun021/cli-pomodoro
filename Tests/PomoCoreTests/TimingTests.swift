@@ -3,6 +3,22 @@ import PomoCore
 import XCTest
 
 final class TimingTests: XCTestCase {
+    func testAlertPreferencesDefaultToEnabledAndPersistOnboardingDismissal() {
+        let defaults = UserDefaults(suiteName: "pomo-alert-test-\(UUID().uuidString)")!
+        let store = AlertPreferencesStore(defaults: defaults)
+
+        XCTAssertEqual(store.preferences, .default)
+        XCTAssertFalse(store.hasCompletedOnboarding)
+
+        store.preferences = AlertPreferences(notificationsEnabled: false, soundEnabled: true)
+        store.hasCompletedOnboarding = true
+
+        let reloaded = AlertPreferencesStore(defaults: defaults)
+        XCTAssertEqual(reloaded.preferences.notificationsEnabled, false)
+        XCTAssertEqual(reloaded.preferences.soundEnabled, true)
+        XCTAssertTrue(reloaded.hasCompletedOnboarding)
+    }
+
     func testFollowSnapshotsYieldsInitialAndStartedSession() async throws {
         let agent = PomoAgentCore(productVersion: "0.1.0")
         let stream = await agent.followSnapshots()

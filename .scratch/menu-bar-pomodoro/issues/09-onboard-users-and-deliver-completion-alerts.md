@@ -4,7 +4,14 @@
 
 **Blocked by:** 04 — Run complete finite and open-ended Pomodoro cycles; 05 — Manage named Presets and the default
 
-**Status:** ready-for-agent
+**Status:** claimed
+
+## Validation evidence
+
+- Added an injectable `AlertPreferencesStore` with isolated `UserDefaults` persistence. Defaults enable notifications and sound independently, and onboarding completion persists across store reloads.
+- Added native Agent Welcome and Alerts controls. Welcome is shown once, offers Classic start, Settings, or Later, and Alerts saves independent notification and sound choices without participating in Session start.
+- `testAlertPreferencesDefaultToEnabledAndPersistOnboardingDismissal` passed; `swift build` passed and touched-file diagnostics are clean.
+- Review follow-up moved onboarding persistence until after the Welcome dialog returns and renamed the action to `Open Alerts`; notification delivery and authorization remain outstanding acceptance criteria.
 
 - [ ] First launch shows the compact Welcome popover with Pomo identity, Classic quick start, Settings, and launch-at-login offered once and off by default.
 - [ ] First Session start explains notification purpose and starts timing without waiting for the authorization response.

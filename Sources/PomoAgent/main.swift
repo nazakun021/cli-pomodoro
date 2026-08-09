@@ -36,6 +36,7 @@ private final class IdleStatusItem: NSObject {
     private let agent: PomoAgentCore
     private let server: LocalAgentServer
     private let presetStore: PresetStore
+    private let alertPreferences: AlertPreferencesStore
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var refreshTimer: Timer?
     private var sleepObserver: NSObjectProtocol?
@@ -46,8 +47,10 @@ private final class IdleStatusItem: NSObject {
         self.agent = agent
         self.server = server
         self.presetStore = presetStore
+        alertPreferences = AlertPreferencesStore()
         super.init()
         refresh()
+        showWelcomeIfNeeded()
         sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -118,6 +121,8 @@ private final class IdleStatusItem: NSObject {
         }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Presets...", action: #selector(openPresets), keyEquivalent: ",")
+        menu.items.last?.target = self
+        menu.addItem(withTitle: "Alerts...", action: #selector(openAlerts), keyEquivalent: "")
         menu.items.last?.target = self
         menu.addItem(withTitle: "Quit Pomo", action: #selector(quit), keyEquivalent: "q")
         menu.items.last?.target = self
@@ -215,6 +220,48 @@ private final class IdleStatusItem: NSObject {
         settingsWindow?.showWindow(nil)
         settingsWindow?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func showWelcomeIfNeeded() {
+        guard !alertPreferences.hasCompletedOnboarding else { return }
+        let alert = NSAlert()
+        alert.messageText = "Welcome to Pomo"
+        alert.informativeText = "Start a Classic Focus Session from the menu bar. You can change alerts in Settings."
+        alert.addButton(withTitle: "Start Classic")
+        alert.addButton(withTitle: "Open Alerts")
+        alert.addButton(withTitle: "Later")
+        alert.alertStyle = .informational
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            startClassic()
+        case .alertSecondButtonReturn:
+            openAlerts()
+        default:
+            break
+        }
+        alertPreferences.hasCompletedOnboarding = true
+    }
+
+    @objc private func openAlerts() {
+        let preferences = alertPreferences.preferences
+        let alert = NSAlert()
+        alert.messageText = "Alerts"
+        alert.informativeText = "Choose which completion cues Pomo may use."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        let notifications = NSButton(checkboxWithTitle: "Notifications", target: nil, action: nil)
+        notifications.state = preferences.notificationsEnabled ? .on : .off
+        let sound = NSButton(checkboxWithTitle: "Sound", target: nil, action: nil)
+        sound.state = preferences.soundEnabled ? .on : .off
+        let view = NSStackView(views: [notifications, sound])
+        view.orientation = .vertical
+        view.alignment = .leading
+        view.spacing = 8
+        alert.accessoryView = view
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        alertPreferences.preferences = AlertPreferences(
+            notificationsEnabled: notifications.state == .on,
+            soundEnabled: sound.state == .on)
     }
 
     @objc private func quit() {

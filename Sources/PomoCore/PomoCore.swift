@@ -23,6 +23,45 @@ public struct Preset: Codable, Equatable, Sendable {
         id: classicID, name: "Classic", configuration: .classic, isClassic: true)
 }
 
+public struct AlertPreferences: Codable, Equatable, Sendable {
+    public let notificationsEnabled: Bool
+    public let soundEnabled: Bool
+
+    public init(notificationsEnabled: Bool, soundEnabled: Bool) {
+        self.notificationsEnabled = notificationsEnabled
+        self.soundEnabled = soundEnabled
+    }
+
+    public static let `default` = AlertPreferences(notificationsEnabled: true, soundEnabled: true)
+}
+
+public final class AlertPreferencesStore: @unchecked Sendable {
+    private let defaults: UserDefaults
+    private let preferencesKey = "pomo.alert-preferences"
+    private let onboardingKey = "pomo.onboarding-completed"
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    public var preferences: AlertPreferences {
+        get {
+            guard let data = defaults.data(forKey: preferencesKey),
+                let value = try? JSONDecoder().decode(AlertPreferences.self, from: data)
+            else { return .default }
+            return value
+        }
+        set {
+            defaults.set(try? JSONEncoder().encode(newValue), forKey: preferencesKey)
+        }
+    }
+
+    public var hasCompletedOnboarding: Bool {
+        get { defaults.bool(forKey: onboardingKey) }
+        set { defaults.set(newValue, forKey: onboardingKey) }
+    }
+}
+
 public enum PresetStoreError: Error, Equatable, Sendable {
     case database
     case insecureStorage
