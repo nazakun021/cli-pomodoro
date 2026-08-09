@@ -95,14 +95,20 @@ private final class PresetSettingsModel: ObservableObject {
 
     func selectDefault() {
         guard let id = selectedID else { return }
-        do { try store.selectDefault(id: id); message = "Default Preset updated." }
-        catch { message = "Could not set the default Preset." }
+        do {
+            try store.selectDefault(id: id)
+            message = "Default Preset updated."
+        } catch { message = "Could not set the default Preset." }
     }
 
     func delete() {
         guard let id = selectedID else { return }
-        do { try store.delete(id: id); selectedID = Preset.classicID; reload(); message = "Deleted." }
-        catch { message = "Could not delete this Preset." }
+        do {
+            try store.delete(id: id)
+            selectedID = Preset.classicID
+            reload()
+            message = "Deleted."
+        } catch { message = "Could not delete this Preset." }
     }
 }
 
@@ -110,19 +116,23 @@ private struct PresetSettingsView: View {
     @StateObject private var model: PresetSettingsModel
     @State private var confirmDeletion = false
 
-    init(store: PresetStore) { _model = StateObject(wrappedValue: PresetSettingsModel(store: store)) }
+    init(store: PresetStore) {
+        _model = StateObject(wrappedValue: PresetSettingsModel(store: store))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Picker("Preset", selection: $model.selectedID) {
                     ForEach(model.presets, id: \.id) { preset in
-                        Text(preset.name + (preset.isClassic ? " (Classic)" : "")).tag(Optional(preset.id))
+                        Text(preset.name + (preset.isClassic ? " (Classic)" : "")).tag(
+                            Optional(preset.id))
                     }
                 }
                 .onChange(of: model.selectedID) { _ in model.loadSelected() }
                 Button("Duplicate", action: model.duplicate).disabled(model.selectedID == nil)
-                Button("Make Default", action: model.selectDefault).disabled(model.selectedID == nil)
+                Button("Make Default", action: model.selectDefault).disabled(
+                    model.selectedID == nil)
             }
             Form {
                 TextField("Name", text: $model.name).disabled(model.isClassic)
@@ -131,20 +141,27 @@ private struct PresetSettingsView: View {
                 TextField("Long Break", text: $model.longBreak).disabled(model.isClassic)
                 TextField("Long Break Every", text: $model.cadence).disabled(model.isClassic)
                 Toggle("Open-ended", isOn: $model.openEnded).disabled(model.isClassic)
-                TextField("Rounds", text: $model.rounds).disabled(model.isClassic || model.openEnded)
+                TextField("Rounds", text: $model.rounds).disabled(
+                    model.isClassic || model.openEnded)
                 Toggle("Auto-start Focus", isOn: $model.autoStartFocus).disabled(model.isClassic)
                 Toggle("Auto-start Breaks", isOn: $model.autoStartBreaks).disabled(model.isClassic)
             }
             Text(model.message).foregroundStyle(.secondary).accessibilityLabel(model.message)
             HStack {
                 Button("Save", action: model.save).disabled(model.isClassic)
-                Button("New") { model.selectedID = nil; model.name = ""; model.message = "Enter a name and configuration." }
+                Button("New") {
+                    model.selectedID = nil
+                    model.name = ""
+                    model.message = "Enter a name and configuration."
+                }
                 Spacer()
                 Button("Delete", role: .destructive) { confirmDeletion = true }
                     .disabled(model.isClassic || model.selectedID == nil)
                     .confirmationDialog("Delete this Preset?", isPresented: $confirmDeletion) {
                         Button("Delete", role: .destructive, action: model.delete)
-                    } message: { Text("Deleting the default switches the default back to Classic.") }
+                    } message: {
+                        Text("Deleting the default switches the default back to Classic.")
+                    }
             }
         }
         .padding()
