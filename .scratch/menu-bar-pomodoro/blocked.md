@@ -1,6 +1,6 @@
 # Blockers
 
-## Ticket 05 — Manage named Presets and the default
+## Resolved: Ticket 05 — Manage named Presets and the default
 
 Date: 2026-08-10
 
@@ -8,4 +8,4 @@ Attempted: Built the native Presets Settings window with `swift build`; it compl
 
 Observed result: Keyboard focus order, delete confirmation presentation, and VoiceOver labels cannot be verified in the current environment.
 
-Required to resume: Manual verification on macOS of Tab/Shift-Tab navigation, Classic read-only controls, user-Preset deletion confirmation, and VoiceOver announcements in the Presets Settings window.
+Resolved: Manual verification on macOS confirmed Tab/Shift-Tab navigation, Classic read-only controls, user-Preset deletion confirmation, and VoiceOver announcements in the Presets Settings window.
