@@ -2,13 +2,14 @@ import Darwin
 import Foundation
 
 public enum AgentState: String, Codable, Sendable {
+    case notRunning = "not_running"
     case idle
     case recovery
 }
 
 public struct AgentSnapshot: Codable, Equatable, Sendable {
     public let agentRunning: Bool
-    public let agentInstanceID: UUID
+    public let agentInstanceID: UUID?
     public let agentState: AgentState
     public let revision: UInt64
     public let session: SessionSnapshot?
@@ -16,7 +17,7 @@ public struct AgentSnapshot: Codable, Equatable, Sendable {
 
     public init(
         agentRunning: Bool,
-        agentInstanceID: UUID,
+        agentInstanceID: UUID?,
         agentState: AgentState,
         revision: UInt64,
         session: SessionSnapshot? = nil,
@@ -53,7 +54,11 @@ public struct AgentSnapshot: Codable, Equatable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(agentRunning, forKey: .agentRunning)
-        try container.encode(agentInstanceID.uuidString.lowercased(), forKey: .agentInstanceID)
+        if let agentInstanceID {
+            try container.encode(agentInstanceID.uuidString.lowercased(), forKey: .agentInstanceID)
+        } else {
+            try container.encodeNil(forKey: .agentInstanceID)
+        }
         try container.encode(agentState, forKey: .agentState)
         try container.encode(revision, forKey: .revision)
         try container.encodeNil(forKey: .sessionID)
@@ -75,7 +80,7 @@ public struct AgentSnapshot: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
             agentRunning: try container.decode(Bool.self, forKey: .agentRunning),
-            agentInstanceID: try container.decode(UUID.self, forKey: .agentInstanceID),
+            agentInstanceID: try container.decodeIfPresent(UUID.self, forKey: .agentInstanceID),
             agentState: try container.decode(AgentState.self, forKey: .agentState),
             revision: try container.decode(UInt64.self, forKey: .revision)
         )
@@ -92,41 +97,51 @@ public struct RecoverySnapshot: Codable, Equatable, Sendable {
 
 public struct PublicResponse: Codable, Equatable, Sendable {
     public let schemaVersion: Int
-    public let success: Bool
-    public let agentRunning: Bool
-    public let snapshot: AgentSnapshot?
+    public let command: String
+    public let ok: Bool
+    public let data: AgentSnapshot?
     public let error: PublicError?
 
     public static func success(snapshot: AgentSnapshot) -> PublicResponse {
         PublicResponse(
-            schemaVersion: 1, success: true, agentRunning: true, snapshot: snapshot, error: nil)
+            schemaVersion: 1, command: "status", ok: true, data: snapshot, error: nil)
     }
 
     public static func agentNotRunning() -> PublicResponse {
         PublicResponse(
-            schemaVersion: 1, success: true, agentRunning: false, snapshot: nil, error: nil)
+            schemaVersion: 1,
+            command: "status",
+            ok: true,
+            data: AgentSnapshot(
+                agentRunning: false,
+                agentInstanceID: nil,
+                agentState: .notRunning,
+                revision: 0
+            ),
+            error: nil
+        )
     }
 
     public static func failure(_ error: PublicError) -> PublicResponse {
         PublicResponse(
-            schemaVersion: 1, success: false, agentRunning: false, snapshot: nil, error: error)
+            schemaVersion: 1, command: "status", ok: false, data: nil, error: error)
     }
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
-        case success
-        case agentRunning = "agent_running"
-        case snapshot
+        case command
+        case ok
+        case data
         case error
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(schemaVersion, forKey: .schemaVersion)
-        try container.encode(success, forKey: .success)
-        try container.encode(agentRunning, forKey: .agentRunning)
-        try container.encodeIfPresent(snapshot, forKey: .snapshot)
-        if snapshot == nil { try container.encodeNil(forKey: .snapshot) }
+        try container.encode(command, forKey: .command)
+        try container.encode(ok, forKey: .ok)
+        try container.encodeIfPresent(data, forKey: .data)
+        if data == nil { try container.encodeNil(forKey: .data) }
         try container.encodeIfPresent(error, forKey: .error)
         if error == nil { try container.encodeNil(forKey: .error) }
     }
@@ -255,6 +270,8 @@ public enum LocalAgentTransportError: Error, Equatable, Sendable {
     case protocolMismatch
     case runtimeDirectoryFailed
     case insecureRuntimeDirectory
+    case lockFailed
+    case insecureEndpoint
 }
 
 public struct IPCCommand: Codable, Equatable, Sendable {
@@ -397,6 +414,7 @@ public final class LocalAgentServer: @unchecked Sendable {
     private let path: String
     private let agent: PomoAgentCore
     private let listener: Int32
+    private let ownershipLock: Int32
     private let lock = NSLock()
     private var running = true
 
@@ -404,7 +422,15 @@ public final class LocalAgentServer: @unchecked Sendable {
         self.path = path
         self.agent = agent
         listener = try Self.makeSocket()
-        try Self.bind(listener, to: path)
+        ownershipLock = try Self.acquireLock(for: path)
+        do {
+            try Self.prepareEndpoint(at: path)
+            try Self.bind(listener, to: path)
+        } catch {
+            Darwin.close(ownershipLock)
+            Darwin.close(listener)
+            throw error
+        }
 
         guard Darwin.listen(listener, 8) == 0 else {
             Darwin.close(listener)
@@ -430,6 +456,7 @@ public final class LocalAgentServer: @unchecked Sendable {
         Darwin.shutdown(listener, SHUT_RDWR)
         Darwin.close(listener)
         unlink(path)
+        Darwin.close(ownershipLock)
     }
 
     private func acceptLoop() {
@@ -519,10 +546,6 @@ public final class LocalAgentServer: @unchecked Sendable {
     }
 
     private static func bind(_ descriptor: Int32, to path: String) throws {
-        guard access(path, F_OK) != 0 else {
-            Darwin.close(descriptor)
-            throw LocalAgentTransportError.bindFailed
-        }
         var address = try unixAddress(path)
         let result = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
@@ -537,6 +560,42 @@ public final class LocalAgentServer: @unchecked Sendable {
             unlink(path)
             Darwin.close(descriptor)
             throw LocalAgentTransportError.bindFailed
+        }
+    }
+
+    private static func acquireLock(for socketPath: String) throws -> Int32 {
+        let lockPath = (socketPath as NSString).deletingPathExtension + ".lock"
+        let descriptor = Darwin.open(lockPath, O_CREAT | O_RDWR, 0o600)
+        guard descriptor >= 0 else { throw LocalAgentTransportError.lockFailed }
+        guard chmod(lockPath, 0o600) == 0, flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+            Darwin.close(descriptor)
+            throw LocalAgentTransportError.lockFailed
+        }
+        return descriptor
+    }
+
+    private static func prepareEndpoint(at path: String) throws {
+        guard access(path, F_OK) == 0 else { return }
+        var metadata = stat()
+        guard stat(path, &metadata) == 0,
+            metadata.st_uid == getuid(),
+            metadata.st_mode & S_IFMT == S_IFSOCK
+        else { throw LocalAgentTransportError.insecureEndpoint }
+
+        if endpointIsReachable(path) {
+            throw LocalAgentTransportError.bindFailed
+        }
+        guard unlink(path) == 0 else { throw LocalAgentTransportError.bindFailed }
+    }
+
+    private static func endpointIsReachable(_ path: String) -> Bool {
+        guard let descriptor = try? makeSocket() else { return true }
+        defer { Darwin.close(descriptor) }
+        guard var address = try? unixAddress(path) else { return true }
+        return withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(descriptor, $0, unixAddressLength(path)) == 0
+            }
         }
     }
 

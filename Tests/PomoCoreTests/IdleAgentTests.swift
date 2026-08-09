@@ -12,7 +12,8 @@ final class IdleAgentTests: XCTestCase {
         XCTAssertEqual(snapshot.revision, 0)
         XCTAssertNil(snapshot.session)
         XCTAssertNil(snapshot.recovery)
-        XCTAssertFalse(snapshot.agentInstanceID.uuidString.isEmpty)
+        XCTAssertNotNil(snapshot.agentInstanceID)
+        XCTAssertFalse(snapshot.agentInstanceID?.uuidString.isEmpty ?? true)
     }
 
     func testPublicIdleStatusUsesOneSchemaVersionedResponse() async throws {
@@ -24,9 +25,10 @@ final class IdleAgentTests: XCTestCase {
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
         XCTAssertEqual(object["schema_version"] as? Int, 1)
-        XCTAssertEqual(object["success"] as? Bool, true)
+        XCTAssertEqual(object["command"] as? String, "status")
+        XCTAssertEqual(object["ok"] as? Bool, true)
         XCTAssertTrue(object["error"] is NSNull)
-        let snapshot = try XCTUnwrap(object["snapshot"] as? [String: Any])
+        let snapshot = try XCTUnwrap(object["data"] as? [String: Any])
         XCTAssertEqual(
             Set(snapshot.keys),
             [
@@ -41,7 +43,7 @@ final class IdleAgentTests: XCTestCase {
         XCTAssertEqual(snapshot["state_revision"] as? Int, 0)
         XCTAssertEqual(
             snapshot["agent_instance_id"] as? String,
-            agentSnapshot.agentInstanceID.uuidString.lowercased()
+            try XCTUnwrap(agentSnapshot.agentInstanceID).uuidString.lowercased()
         )
         XCTAssertTrue(snapshot["session_id"] is NSNull)
         XCTAssertTrue(snapshot["session_state"] is NSNull)
@@ -65,9 +67,12 @@ final class IdleAgentTests: XCTestCase {
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
         XCTAssertEqual(object["schema_version"] as? Int, 1)
-        XCTAssertEqual(object["success"] as? Bool, true)
-        XCTAssertEqual(object["agent_running"] as? Bool, false)
-        XCTAssertTrue(object["snapshot"] is NSNull)
+        XCTAssertEqual(object["command"] as? String, "status")
+        XCTAssertEqual(object["ok"] as? Bool, true)
+        let snapshot = try XCTUnwrap(object["data"] as? [String: Any])
+        XCTAssertEqual(snapshot["agent_running"] as? Bool, false)
+        XCTAssertEqual(snapshot["agent_state"] as? String, "not_running")
+        XCTAssertTrue(snapshot["agent_instance_id"] is NSNull)
         XCTAssertTrue(object["error"] is NSNull)
     }
 }

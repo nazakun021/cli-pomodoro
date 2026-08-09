@@ -23,7 +23,7 @@ struct PomoCLI {
             FileHandle.standardOutput.write(data)
             FileHandle.standardOutput.write(Data("\n".utf8))
         } else {
-            if let snapshot = response.snapshot {
+            if let snapshot = response.data, snapshot.agentRunning {
                 print("Pomo Agent is Idle (revision \(snapshot.revision)).")
             } else {
                 print("Pomo Agent is not running.")
