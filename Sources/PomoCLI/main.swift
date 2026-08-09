@@ -48,7 +48,7 @@ struct PomoCLI {
         }
 
         if command == "follow" {
-            await writeInitialFollowEvent(json: json)
+            await follow(json: json)
             return
         }
 
@@ -79,25 +79,26 @@ struct PomoCLI {
         }
     }
 
-    private static func writeInitialFollowEvent(json: Bool) async {
+    private static func follow(json: Bool) async {
         do {
-            let event = try await LocalAgentClient(path: RuntimeEndpoint.socketPath())
-                .followInitialEvent()
-            if json {
-                let encoder = JSONEncoder()
-                encoder.outputFormatting = [.sortedKeys]
-                FileHandle.standardOutput.write(try encoder.encode(event))
-                FileHandle.standardOutput.write(Data("\n".utf8))
-            } else if let snapshot = event.snapshot {
-                let phase =
-                    snapshot.phaseType?.rawValue.replacingOccurrences(of: "_", with: " ")
-                    ?? "idle"
-                let state = snapshot.sessionState?.rawValue ?? snapshot.agentState.rawValue
-                let remaining = snapshot.remainingSeconds.map(String.init) ?? "-"
-                print("Following \(phase) - \(state), \(remaining)s remaining.")
-                print(
-                    "Use `pomo pause`, `pomo resume`, `pomo skip`, or `pomo stop` in another terminal."
-                )
+            let events = try await LocalAgentClient(path: RuntimeEndpoint.socketPath()).followEvents()
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            for try await event in events {
+                if json {
+                    FileHandle.standardOutput.write(try encoder.encode(event))
+                    FileHandle.standardOutput.write(Data("\n".utf8))
+                } else if let snapshot = event.snapshot, event.sequence == 0 {
+                    let phase =
+                        snapshot.phaseType?.rawValue.replacingOccurrences(of: "_", with: " ")
+                        ?? "idle"
+                    let state = snapshot.sessionState?.rawValue ?? snapshot.agentState.rawValue
+                    let remaining = snapshot.remainingSeconds.map(String.init) ?? "-"
+                    print("Following \(phase) - \(state), \(remaining)s remaining.")
+                    print(
+                        "Use `pomo pause`, `pomo resume`, `pomo skip`, or `pomo stop` in another terminal."
+                    )
+                }
             }
         } catch {
             FileHandle.standardError.write(Data("Pomo Agent is unavailable.\n".utf8))

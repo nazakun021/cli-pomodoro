@@ -1471,6 +1471,75 @@ public struct LocalAgentClient: Sendable {
         return event
     }
 
+    public func followEvents() async throws -> AsyncThrowingStream<FollowEvent, Error> {
+        let descriptor = try LocalAgentServer.makeSocket()
+        var address = try unixAddress(path)
+        let connected = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(descriptor, $0, unixAddressLength(path))
+            }
+        }
+        guard connected == 0 else {
+            Darwin.close(descriptor)
+            throw LocalAgentTransportError.connectFailed
+        }
+
+        let hello = Hello(
+            messageID: UUID(),
+            clientName: "pomo",
+            clientVersion: "0.1.0",
+            supportedProtocol: supportedProtocol,
+            capabilities: ["status"]
+        )
+        guard
+            LocalAgentServer.writeAll(
+                try FrameCodec.encode(try JSONEncoder().encode(hello)), to: descriptor)
+        else {
+            Darwin.close(descriptor)
+            throw LocalAgentTransportError.writeFailed
+        }
+
+        let handshakeData = try LocalAgentServer.readFrame(from: descriptor)
+        let acknowledgement = try JSONDecoder().decode(HelloAck.self, from: handshakeData)
+        let requestID = UUID()
+        let request = IPCRequest(
+            protocolVersion: acknowledgement.negotiatedProtocol,
+            requestID: requestID,
+            agentInstanceID: acknowledgement.agentInstanceID,
+            issuedAt: currentUTCTimestamp(),
+            command: IPCCommand(name: "follow")
+        )
+        guard
+            LocalAgentServer.writeAll(
+                try FrameCodec.encode(try JSONEncoder().encode(request)), to: descriptor)
+        else {
+            Darwin.close(descriptor)
+            throw LocalAgentTransportError.writeFailed
+        }
+
+        let responseData = try LocalAgentServer.readFrame(from: descriptor)
+        let response = try JSONDecoder().decode(IPCResponse.self, from: responseData)
+        guard response.ok, response.requestID == requestID else {
+            Darwin.close(descriptor)
+            throw LocalAgentTransportError.invalidResponse
+        }
+
+        return AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    while true {
+                        let data = try LocalAgentServer.readFrame(from: descriptor)
+                        let event = try JSONDecoder().decode(FollowEvent.self, from: data)
+                        continuation.yield(event)
+                    }
+                } catch {
+                    continuation.finish(throwing: error)
+                    Darwin.close(descriptor)
+                }
+            }
+        }
+    }
+
     public func statusResponse(requestID: UUID) async throws -> IPCResponse {
         try await commandResponse(command: "status", requestID: requestID).response
     }

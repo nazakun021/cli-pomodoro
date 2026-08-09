@@ -36,6 +36,24 @@ final class UnixSocketTests: XCTestCase {
         XCTAssertEqual(event.snapshot?.agentState, .idle)
     }
 
+    func testFollowStreamReceivesLaterSessionSnapshot() async throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path
+        let agent = PomoAgentCore(productVersion: "0.1.0")
+        let server = try LocalAgentServer(path: path, agent: agent)
+        defer { server.stop() }
+
+        let events = try await LocalAgentClient(path: path).followEvents()
+        var iterator = events.makeAsyncIterator()
+        let initial = try await iterator.next()
+        XCTAssertEqual(initial?.sequence, 0)
+        _ = try await LocalAgentClient(path: path).startClassic()
+
+        let update = try await iterator.next()
+        XCTAssertEqual(update?.kind, .transition)
+        XCTAssertEqual(update?.snapshot?.agentState, .session)
+    }
+
     func testStatusOverSocketReturnsReachableIdleSnapshot() async throws {
         let path = FileManager.default.temporaryDirectory
             .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path

@@ -28,3 +28,5 @@
 - Full validation after the subscription foundation passed; touched Core and timing-test diagnostics are clean.
 - Follow sockets are now handled concurrently, remain subscribed after their initial snapshot, and relay later serialized Agent snapshots as ordered transition events without blocking the listener.
 - Full validation after the persistent transport foundation passed with 57 tests, 0 failures; Core diagnostics and `git diff --check` passed.
+- The CLI now consumes the persistent Follow socket: JSON mode emits every ordered event as NDJSON, while human mode renders the initial dashboard and remains attached for later updates.
+- `testFollowStreamReceivesLaterSessionSnapshot` passed, proving an initial snapshot followed by a later Agent-owned Session transition; `swift build` passed, the full suite passed with 70 tests and 0 failures, and `git diff --check` passed.

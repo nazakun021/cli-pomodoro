@@ -4,7 +4,11 @@
 
 **Blocked by:** 02 — Start and stop a Classic Focus Session
 
-**Status:** ready-for-agent
+**Status:** claimed
+
+## Validation evidence
+
+- Ticket 10 is the prerequisite for ticket 07 cold-Agent Preset discovery and Start. The launch adapter must target the installed app artifact rather than the development executable.
 
 - [ ] Start launches the installed Agent when needed and acknowledges within the bounded startup wait or fails with actionable Agent-unavailable guidance.
 - [ ] Repeated app launches forward to the existing Agent and cannot create competing owners.
