@@ -212,9 +212,9 @@ public struct PublicResponse: Codable, Equatable, Sendable {
         )
     }
 
-    public static func failure(_ error: PublicError) -> PublicResponse {
+    public static func failure(_ error: PublicError, command: String = "status") -> PublicResponse {
         PublicResponse(
-            schemaVersion: 1, command: "status", ok: false, data: nil, error: error)
+            schemaVersion: 1, command: command, ok: false, data: nil, error: error)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -366,16 +366,20 @@ public enum LocalAgentTransportError: Error, Equatable, Sendable {
 
 public struct IPCCommand: Codable, Equatable, Sendable {
     public let name: String
-    public let arguments: EmptyArguments
+    public let arguments: MutationArguments
 
-    public init(name: String) {
+    public init(name: String, replace: Bool = false) {
         self.name = name
-        arguments = EmptyArguments()
+        arguments = MutationArguments(replace: replace)
     }
 }
 
-public struct EmptyArguments: Codable, Equatable, Sendable {
-    public init() {}
+public struct MutationArguments: Codable, Equatable, Sendable {
+    public let replace: Bool
+
+    public init(replace: Bool = false) {
+        self.replace = replace
+    }
 }
 
 public struct IPCRequest: Codable, Equatable, Sendable {
@@ -433,6 +437,21 @@ public struct IPCResponse: Codable, Equatable, Sendable {
         self.stateRevision = stateRevision
         self.result = result
         error = nil
+    }
+
+    public init(
+        protocolVersion: ProtocolVersion,
+        requestID: UUID,
+        stateRevision: UInt64,
+        error: PublicError
+    ) {
+        messageType = "response"
+        self.protocolVersion = protocolVersion
+        self.requestID = requestID
+        ok = false
+        self.stateRevision = stateRevision
+        result = nil
+        self.error = error
     }
 
     enum CodingKeys: String, CodingKey {
@@ -607,32 +626,49 @@ public final class LocalAgentServer: @unchecked Sendable {
             guard let requestData = try? Self.readFrame(from: client),
                 let request = try? JSONDecoder().decode(IPCRequest.self, from: requestData),
                 request.messageType == "request",
-                request.protocolVersion == negotiation.version,
-                request.agentInstanceID == handshake.agentInstanceID
+                request.protocolVersion == negotiation.version
             else { return }
-            let snapshot: AgentSnapshot
-            switch request.command.name {
-            case "status":
-                snapshot = await agent.snapshot()
-            case "start":
-                guard request.command == IPCCommand(name: "start"),
-                    let started = try? await agent.startClassic(requestID: request.requestID)
-                else { return }
-                snapshot = started
-            case "stop":
-                guard request.command == IPCCommand(name: "stop"),
-                    let stopped = try? await agent.stopSession(requestID: request.requestID)
-                else { return }
-                snapshot = stopped
-            default:
+            let response: IPCResponse
+            do {
+                let snapshot: AgentSnapshot
+                switch request.command.name {
+                case "status":
+                    guard request.command == IPCCommand(name: "status") else { return }
+                    snapshot = await agent.snapshot()
+                case "start":
+                    snapshot = try await agent.startClassic(
+                        requestID: request.requestID,
+                        issuedAt: request.issuedAt,
+                        agentInstanceID: request.agentInstanceID,
+                        replace: request.command.arguments.replace
+                    )
+                case "stop":
+                    guard request.command == IPCCommand(name: "stop") else { return }
+                    snapshot = try await agent.stopSession(
+                        requestID: request.requestID,
+                        issuedAt: request.issuedAt,
+                        agentInstanceID: request.agentInstanceID
+                    )
+                default:
+                    return
+                }
+                response = IPCResponse(
+                    protocolVersion: negotiation.version,
+                    requestID: request.requestID,
+                    stateRevision: snapshot.revision,
+                    result: snapshot
+                )
+            } catch let error as AgentCommandError {
+                let snapshot = await agent.snapshot()
+                response = IPCResponse(
+                    protocolVersion: negotiation.version,
+                    requestID: request.requestID,
+                    stateRevision: snapshot.revision,
+                    error: error.publicError(currentState: snapshot.agentState)
+                )
+            } catch {
                 return
             }
-            let response = IPCResponse(
-                protocolVersion: negotiation.version,
-                requestID: request.requestID,
-                stateRevision: snapshot.revision,
-                result: snapshot
-            )
             _ = Self.writeJSON(response, to: client)
         }
         responseWritten.wait()
@@ -766,15 +802,27 @@ public struct LocalAgentClient: Sendable {
         return PublicResponse.success(snapshot: snapshot)
     }
 
-    public func startClassic() async throws -> PublicResponse {
-        let response = try await startClassicResponse(requestID: UUID())
-        guard let snapshot = response.result else { throw LocalAgentTransportError.invalidResponse }
+    public func startClassic(replace: Bool = false) async throws -> PublicResponse {
+        let response = try await startClassicResponse(requestID: UUID(), replace: replace)
+        guard response.ok, let snapshot = response.result else {
+            return .failure(
+                response.error ?? PublicError(
+                    code: "invalid_response", message: "Invalid Agent response.", exitCode: 1),
+                command: "start"
+            )
+        }
         return PublicResponse.success(command: "start", snapshot: snapshot)
     }
 
     public func stop() async throws -> PublicResponse {
         let response = try await stopResponse(requestID: UUID())
-        guard let snapshot = response.result else { throw LocalAgentTransportError.invalidResponse }
+        guard response.ok, let snapshot = response.result else {
+            return .failure(
+                response.error ?? PublicError(
+                    code: "invalid_response", message: "Invalid Agent response.", exitCode: 1),
+                command: "stop"
+            )
+        }
         return PublicResponse.success(command: "stop", snapshot: snapshot)
     }
 
@@ -782,15 +830,34 @@ public struct LocalAgentClient: Sendable {
         try await commandResponse(command: "status", requestID: requestID)
     }
 
-    public func startClassicResponse(requestID: UUID) async throws -> IPCResponse {
-        try await commandResponse(command: "start", requestID: requestID)
+    public func startClassicResponse(
+        requestID: UUID,
+        replace: Bool = false,
+        issuedAt: String? = nil,
+        agentInstanceID: UUID? = nil
+    ) async throws -> IPCResponse {
+        try await commandResponse(
+            command: "start", requestID: requestID, replace: replace, issuedAt: issuedAt,
+            agentInstanceID: agentInstanceID)
     }
 
-    public func stopResponse(requestID: UUID) async throws -> IPCResponse {
-        try await commandResponse(command: "stop", requestID: requestID)
+    public func stopResponse(
+        requestID: UUID,
+        issuedAt: String? = nil,
+        agentInstanceID: UUID? = nil
+    ) async throws -> IPCResponse {
+        try await commandResponse(
+            command: "stop", requestID: requestID, issuedAt: issuedAt,
+            agentInstanceID: agentInstanceID)
     }
 
-    private func commandResponse(command: String, requestID: UUID) async throws -> IPCResponse {
+    private func commandResponse(
+        command: String,
+        requestID: UUID,
+        replace: Bool = false,
+        issuedAt: String? = nil,
+        agentInstanceID: UUID? = nil
+    ) async throws -> IPCResponse {
         let descriptor = try LocalAgentServer.makeSocket()
         defer { Darwin.close(descriptor) }
         var address = try unixAddress(path)
@@ -825,9 +892,9 @@ public struct LocalAgentClient: Sendable {
             IPCRequest(
                 protocolVersion: acknowledgement.negotiatedProtocol,
                 requestID: requestID,
-                agentInstanceID: acknowledgement.agentInstanceID,
-                issuedAt: currentUTCTimestamp(),
-                command: IPCCommand(name: command)
+                agentInstanceID: agentInstanceID ?? acknowledgement.agentInstanceID,
+                issuedAt: issuedAt ?? currentUTCTimestamp(),
+                command: IPCCommand(name: command, replace: replace)
             )
         )
         guard LocalAgentServer.writeAll(try FrameCodec.encode(request), to: descriptor) else {
@@ -933,11 +1000,13 @@ private func currentUTCTimestamp() -> String {
 }
 
 public actor PomoAgentCore {
+    private static let mutationRetryWindow: TimeInterval = 300
+    private static let maximumFutureRequestSkew: TimeInterval = 30
     private let agentInstanceID: UUID
     private let productVersion: String
     private var revision: UInt64 = 0
     private var activeSession: ActiveSession?
-    private var completedMutations: [UUID: AgentSnapshot] = [:]
+    private var completedMutations: [UUID: CachedMutation] = [:]
 
     public init(productVersion: String) {
         self.productVersion = productVersion
@@ -969,32 +1038,72 @@ public actor PomoAgentCore {
     }
 
     public func startClassic() throws -> AgentSnapshot {
-        try startClassic(requestID: UUID())
+        try startClassic(
+            requestID: UUID(), issuedAt: currentUTCTimestamp(), agentInstanceID: agentInstanceID,
+            replace: false)
     }
 
-    fileprivate func startClassic(requestID: UUID) throws -> AgentSnapshot {
-        if let cached = completedMutations[requestID] { return cached }
-        guard activeSession == nil else { throw AgentCommandError.sessionAlreadyActive }
+    fileprivate func startClassic(
+        requestID: UUID,
+        issuedAt: String,
+        agentInstanceID: UUID,
+        replace: Bool
+    ) throws -> AgentSnapshot {
+        if let cached = try cachedMutation(
+            requestID: requestID, issuedAt: issuedAt, agentInstanceID: agentInstanceID)
+        { return cached }
+        guard activeSession == nil || replace else { throw AgentCommandError.sessionAlreadyActive }
         activeSession = ActiveSession(
             id: UUID(), phaseID: UUID(), configuration: .classic, startedAt: Date())
         revision += 1
         let result = snapshot()
-        completedMutations[requestID] = result
+        completedMutations[requestID] = CachedMutation(snapshot: result, completedAt: Date())
         return result
     }
 
     public func stopSession() throws -> AgentSnapshot {
-        try stopSession(requestID: UUID())
+        try stopSession(
+            requestID: UUID(), issuedAt: currentUTCTimestamp(), agentInstanceID: agentInstanceID)
     }
 
-    fileprivate func stopSession(requestID: UUID) throws -> AgentSnapshot {
-        if let cached = completedMutations[requestID] { return cached }
+    fileprivate func stopSession(
+        requestID: UUID,
+        issuedAt: String,
+        agentInstanceID: UUID
+    ) throws -> AgentSnapshot {
+        if let cached = try cachedMutation(
+            requestID: requestID, issuedAt: issuedAt, agentInstanceID: agentInstanceID)
+        { return cached }
         guard activeSession != nil else { throw AgentCommandError.noActiveSession }
         activeSession = nil
         revision += 1
         let result = snapshot()
-        completedMutations[requestID] = result
+        completedMutations[requestID] = CachedMutation(snapshot: result, completedAt: Date())
         return result
+    }
+
+    private func cachedMutation(
+        requestID: UUID,
+        issuedAt: String,
+        agentInstanceID: UUID
+    ) throws -> AgentSnapshot? {
+        guard agentInstanceID == self.agentInstanceID else {
+            throw AgentCommandError.wrongAgent
+        }
+        guard let requestDate = parseUTCTimestamp(issuedAt) else {
+            throw AgentCommandError.invalidRequestTimestamp
+        }
+        let now = Date()
+        guard requestDate <= now.addingTimeInterval(Self.maximumFutureRequestSkew) else {
+            throw AgentCommandError.requestFromFuture
+        }
+        guard now.timeIntervalSince(requestDate) <= Self.mutationRetryWindow else {
+            throw AgentCommandError.requestExpired
+        }
+        completedMutations = completedMutations.filter {
+            now.timeIntervalSince($0.value.completedAt) <= Self.mutationRetryWindow
+        }
+        return completedMutations[requestID]?.snapshot
     }
 
     fileprivate func handshakeInfo() -> AgentHandshakeInfo {
@@ -1011,6 +1120,41 @@ public actor PomoAgentCore {
 public enum AgentCommandError: Error, Equatable, Sendable {
     case sessionAlreadyActive
     case noActiveSession
+    case requestExpired
+    case requestFromFuture
+    case wrongAgent
+    case invalidRequestTimestamp
+
+    fileprivate func publicError(currentState: AgentState) -> PublicError {
+        switch self {
+        case .sessionAlreadyActive:
+            return PublicError(
+                code: "invalid_state",
+                message: "A Session is already active. Current state: \(currentState.rawValue). Valid next actions: stop.",
+                exitCode: 3)
+        case .noActiveSession:
+            return PublicError(
+                code: "invalid_state",
+                message: "No Session is active. Current state: \(currentState.rawValue). Valid next actions: start.",
+                exitCode: 3)
+        case .requestExpired:
+            return PublicError(
+                code: "invalid_request", message: "Mutating request is older than five minutes.",
+                exitCode: 3)
+        case .requestFromFuture:
+            return PublicError(
+                code: "invalid_request", message: "Mutating request is more than thirty seconds in the future.",
+                exitCode: 3)
+        case .wrongAgent:
+            return PublicError(
+                code: "invalid_request", message: "Mutating request targets a different Agent instance.",
+                exitCode: 3)
+        case .invalidRequestTimestamp:
+            return PublicError(
+                code: "invalid_request", message: "Mutating request has an invalid UTC timestamp.",
+                exitCode: 3)
+        }
+    }
 }
 
 private struct ActiveSession: Sendable {
@@ -1020,10 +1164,21 @@ private struct ActiveSession: Sendable {
     let startedAt: Date
 }
 
+private struct CachedMutation: Sendable {
+    let snapshot: AgentSnapshot
+    let completedAt: Date
+}
+
 private func timestamp(_ date: Date) -> String {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     return formatter.string(from: date)
+}
+
+private func parseUTCTimestamp(_ value: String) -> Date? {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter.date(from: value)
 }
 
 private struct AgentHandshakeInfo: Sendable {

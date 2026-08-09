@@ -35,3 +35,15 @@
 - `swift test` passed after replay caching: 19 tests, 0 failures; `swift build` passed without diagnostics.
 - Start conflict validation: a second non-replacement Start is rejected and a later Status retains the original Session identity and revision.
 - `swift test` passed after conflict coverage: 20 tests, 0 failures; `swift build` passed without diagnostics.
+- `swift test --filter IPCEnvelopeTests` passed: duplicate non-replacement Start returns a structured `invalid_state` response with the current state and valid next action, while explicit replacement creates exactly one new Session at the next revision.
+- IPC mutation validation: expired requests older than five minutes, requests more than thirty seconds in the future, and requests bound to a different Agent instance return `invalid_request` without changing the Idle snapshot. Duplicate Stop returns its cached Idle result without a second mutation.
+- `pomo start --replace` now forwards explicit non-interactive replacement through the Agent IPC seam. JSON and human CLI output preserve structured command failures and exit with the returned error category.
+- Active-menu validation: phase/state, configured round progress, confirmed Stop, next phase, snapshot-derived accessibility labels, and `MM:SS`/`H:MM:SS` status formatting are derived from the shared Agent snapshot. Pause and Skip remain unavailable because the current Agent command/state-machine slice does not implement them.
+- `swift test` passed: 23 tests, 0 failures.
+- `swift build` passed without diagnostics.
+
+## Remaining gaps
+
+- This ticket remains `claimed`. The current architecture has no configurable Start payload, so it cannot prevalidate and reject an invalid replacement without changing the active Session.
+- Pause, Skip, and multi-phase transitions are not implemented in the Agent command/state-machine slice; the menu presents those controls but cannot execute them.
+- Automated CLI-subprocess and native-menu checks for one serialized Session across both surfaces are not present in the test target.

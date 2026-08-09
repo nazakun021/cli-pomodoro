@@ -50,11 +50,21 @@ private final class IdleStatusItem: NSObject {
     private func rebuildMenu(for snapshot: AgentSnapshot) {
         let menu = NSMenu()
         if snapshot.agentState == .session {
+            let phase = snapshot.phaseType == .focus ? "Focus" : "Break"
+            let state = snapshot.sessionState?.rawValue.capitalized ?? "Unknown"
+            let rounds: String
+            if let targetRounds = snapshot.configuration?.targetRounds {
+                rounds = "Round \((snapshot.completedRounds ?? 0) + 1) of \(targetRounds)"
+            } else {
+                rounds = "Round \((snapshot.completedRounds ?? 0) + 1)"
+            }
+            let nextPhase = snapshot.phaseType == .focus ? "Short Break" : "Focus"
             item.button?.image = NSImage(
-                systemSymbolName: "timer", accessibilityDescription: "Pomo Focus Running")
+                systemSymbolName: snapshot.phaseType == .focus ? "target" : "cup.and.saucer",
+                accessibilityDescription: "Pomo \(phase) \(state)")
             item.button?.title = formatRemaining(snapshot.remainingSeconds ?? 0)
-            menu.addItem(withTitle: "Focus - Running", action: nil, keyEquivalent: "")
-            menu.addItem(withTitle: "Round 1 of 4", action: nil, keyEquivalent: "")
+            menu.addItem(withTitle: "\(phase) - \(state)", action: nil, keyEquivalent: "")
+            menu.addItem(withTitle: rounds, action: nil, keyEquivalent: "")
             menu.addItem(.separator())
             let pause = menu.addItem(withTitle: "Pause", action: nil, keyEquivalent: "")
             pause.isEnabled = false
@@ -63,6 +73,7 @@ private final class IdleStatusItem: NSObject {
             menu.addItem(
                 withTitle: "Stop Session", action: #selector(confirmStop), keyEquivalent: "")
             menu.items.last?.target = self
+            menu.addItem(withTitle: "Next: \(nextPhase)", action: nil, keyEquivalent: "")
         } else {
             item.button?.title = ""
             item.button?.image = NSImage(
@@ -105,7 +116,9 @@ private final class IdleStatusItem: NSObject {
     }
 
     private func formatRemaining(_ seconds: Int) -> String {
-        let minutes = seconds / 60
-        return String(format: "%02d:%02d", minutes, seconds % 60)
+        if seconds >= 3_600 {
+            return String(format: "%d:%02d:%02d", seconds / 3_600, (seconds / 60) % 60, seconds % 60)
+        }
+        return String(format: "%02d:%02d", seconds / 60, seconds % 60)
     }
 }

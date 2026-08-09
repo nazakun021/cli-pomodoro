@@ -74,13 +74,75 @@ final class IPCEnvelopeTests: XCTestCase {
         let client = LocalAgentClient(path: path)
         let first = try await client.startClassicResponse(requestID: UUID())
 
-        do {
-            _ = try await client.startClassicResponse(requestID: UUID())
-            XCTFail("Expected a second Start to be rejected")
-        } catch {}
+        let rejected = try await client.startClassicResponse(requestID: UUID())
         let observed = try await client.statusResponse(requestID: UUID())
 
+        XCTAssertFalse(rejected.ok)
+        XCTAssertEqual(rejected.error?.code, "invalid_state")
+        XCTAssertEqual(rejected.error?.exitCode, 3)
+        XCTAssertTrue(rejected.error?.message.contains("Current state: session") == true)
+        XCTAssertTrue(rejected.error?.message.contains("Valid next actions: stop") == true)
         XCTAssertEqual(observed.result?.sessionID, first.result?.sessionID)
         XCTAssertEqual(observed.result?.revision, first.result?.revision)
     }
+
+    func testReplacementStartCreatesOneNewSession() async throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path
+        let server = try LocalAgentServer(path: path, agent: PomoAgentCore(productVersion: "0.1.0"))
+        defer { server.stop() }
+        let client = LocalAgentClient(path: path)
+        let first = try await client.startClassicResponse(requestID: UUID())
+
+        let replacement = try await client.startClassicResponse(requestID: UUID(), replace: true)
+
+        XCTAssertTrue(replacement.ok)
+        XCTAssertNotEqual(replacement.result?.sessionID, first.result?.sessionID)
+        XCTAssertEqual(replacement.result?.revision, 2)
+    }
+
+    func testExpiredFutureAndWrongAgentMutationsAreRejectedWithoutStateChange() async throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path
+        let server = try LocalAgentServer(path: path, agent: PomoAgentCore(productVersion: "0.1.0"))
+        defer { server.stop() }
+        let client = LocalAgentClient(path: path)
+
+        let expired = try await client.startClassicResponse(
+            requestID: UUID(), issuedAt: utcTimestamp(Date().addingTimeInterval(-301)))
+        let future = try await client.startClassicResponse(
+            requestID: UUID(), issuedAt: utcTimestamp(Date().addingTimeInterval(31)))
+        let wrongAgent = try await client.startClassicResponse(
+            requestID: UUID(), agentInstanceID: UUID())
+        let observed = try await client.statusResponse(requestID: UUID())
+
+        XCTAssertEqual(expired.error?.code, "invalid_request")
+        XCTAssertEqual(future.error?.code, "invalid_request")
+        XCTAssertEqual(wrongAgent.error?.code, "invalid_request")
+        XCTAssertEqual(observed.result?.agentState, .idle)
+        XCTAssertEqual(observed.result?.revision, 0)
+    }
+
+    func testDuplicateStopReturnsCachedIdleSnapshotWithoutApplyingTwice() async throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path
+        let server = try LocalAgentServer(path: path, agent: PomoAgentCore(productVersion: "0.1.0"))
+        defer { server.stop() }
+        let client = LocalAgentClient(path: path)
+        _ = try await client.startClassicResponse(requestID: UUID())
+        let requestID = UUID()
+
+        let first = try await client.stopResponse(requestID: requestID)
+        let duplicate = try await client.stopResponse(requestID: requestID)
+
+        XCTAssertTrue(first.ok)
+        XCTAssertEqual(duplicate.result?.revision, first.result?.revision)
+        XCTAssertEqual(duplicate.result?.agentState, .idle)
+    }
+}
+
+private func utcTimestamp(_ date: Date) -> String {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter.string(from: date)
 }
