@@ -39,6 +39,7 @@ public final class AlertPreferencesStore: @unchecked Sendable {
     private let defaults: UserDefaults
     private let preferencesKey = "pomo.alert-preferences"
     private let onboardingKey = "pomo.onboarding-completed"
+    private let missedAlertKey = "pomo.missed-alert"
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -59,6 +60,11 @@ public final class AlertPreferencesStore: @unchecked Sendable {
     public var hasCompletedOnboarding: Bool {
         get { defaults.bool(forKey: onboardingKey) }
         set { defaults.set(newValue, forKey: onboardingKey) }
+    }
+
+    public var hasMissedAlert: Bool {
+        get { defaults.bool(forKey: missedAlertKey) }
+        set { defaults.set(newValue, forKey: missedAlertKey) }
     }
 }
 

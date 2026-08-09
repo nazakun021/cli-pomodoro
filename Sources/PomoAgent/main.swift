@@ -68,6 +68,7 @@ private final class IdleStatusItem: NSObject {
     private var refreshGeneration = 0
     private var isQuitting = false
     private var missedAlert = false
+    private var missedAlertGeneration = 0
 
     init(
         agent: PomoAgentCore,
@@ -82,6 +83,7 @@ private final class IdleStatusItem: NSObject {
         self.lifecycleStore = lifecycleStore
         self.priorInterruption = priorInterruption
         alertPreferences = AlertPreferencesStore()
+        missedAlert = alertPreferences.hasMissedAlert
         super.init()
         refresh()
         showInterruptionIfNeeded()
@@ -297,10 +299,12 @@ private final class IdleStatusItem: NSObject {
         let preferences = alertPreferences.preferences
         if preferences.soundEnabled { NSSound.beep() }
         guard preferences.notificationsEnabled else { return }
+        let generation = missedAlertGeneration
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             guard settings.authorizationStatus == .authorized else {
                 Task { @MainActor [weak self] in
                     self?.missedAlert = true
+                    self?.alertPreferences.hasMissedAlert = true
                     self?.refresh()
                 }
                 return
@@ -325,7 +329,9 @@ private final class IdleStatusItem: NSObject {
             UNUserNotificationCenter.current().add(request) { [weak self] error in
                 guard error != nil else { return }
                 Task { @MainActor in
+                    guard generation == self?.missedAlertGeneration else { return }
                     self?.missedAlert = true
+                    self?.alertPreferences.hasMissedAlert = true
                     self?.refresh()
                 }
             }
@@ -333,7 +339,9 @@ private final class IdleStatusItem: NSObject {
     }
 
     @objc private func dismissMissedAlert() {
+        missedAlertGeneration += 1
         missedAlert = false
+        alertPreferences.hasMissedAlert = false
         refresh()
     }
 

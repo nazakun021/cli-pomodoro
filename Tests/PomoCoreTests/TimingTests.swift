@@ -12,11 +12,13 @@ final class TimingTests: XCTestCase {
 
         store.preferences = AlertPreferences(notificationsEnabled: false, soundEnabled: true)
         store.hasCompletedOnboarding = true
+        store.hasMissedAlert = true
 
         let reloaded = AlertPreferencesStore(defaults: defaults)
         XCTAssertEqual(reloaded.preferences.notificationsEnabled, false)
         XCTAssertEqual(reloaded.preferences.soundEnabled, true)
         XCTAssertTrue(reloaded.hasCompletedOnboarding)
+        XCTAssertTrue(reloaded.hasMissedAlert)
     }
 
     func testFollowSnapshotsYieldsInitialAndStartedSession() async throws {
