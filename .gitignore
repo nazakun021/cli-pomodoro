@@ -1,0 +1,44 @@
+# Swift Package Manager
+.build/
+.swiftpm/xcode/package.xcworkspace/
+.swiftpm/xcode/xcuserdata/
+
+# Xcode user state and derived products
+DerivedData/
+build/
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+
+# Test, coverage, and tool caches
+.swiftpm/cache/
+.swiftlint-cache/
+.swiftformat-cache/
+coverage/
+*.profdata
+*.profraw
+
+# Local Pomo data and diagnostics
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.log
+logs/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.pem
+*.mobileprovision
+
+# macOS and editor metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+.idea/
+.vscode/
