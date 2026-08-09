@@ -15,6 +15,50 @@ final class TimingTests: XCTestCase {
         XCTAssertEqual(snapshot.remainingSeconds, 1_498)
     }
 
+    func testExpectedTransitionUsesExactMonotonicRemainder() async throws {
+        let clock = TestClock()
+        let agent = PomoAgentCore(productVersion: "0.1.0", clock: clock.clock)
+        _ = try await agent.startClassic()
+        clock.advance(monotonicBy: 0.25, wallBy: 3_600)
+
+        let snapshot = await agent.snapshot()
+
+        XCTAssertEqual(snapshot.remainingSeconds, 1_500)
+        XCTAssertEqual(
+            try XCTUnwrap(snapshot.expectedTransitionAt),
+            timestamp(Date(timeIntervalSince1970: 5_099.75)))
+    }
+
+    func testDisplayRoundsUpUntilTheDeadline() async throws {
+        let clock = TestClock()
+        let agent = PomoAgentCore(productVersion: "0.1.0", clock: clock.clock)
+        _ = try await agent.startClassic()
+
+        clock.advance(monotonicBy: 0.001, wallBy: 0.001)
+        let beforeBoundary = await agent.snapshot()
+        clock.advance(monotonicBy: 1, wallBy: 1)
+        let afterBoundary = await agent.snapshot()
+
+        XCTAssertEqual(beforeBoundary.remainingSeconds, 1_500)
+        XCTAssertEqual(afterBoundary.remainingSeconds, 1_499)
+    }
+
+    func testResumeRecalculatesExpectedTransitionFromCurrentWallTime() async throws {
+        let clock = TestClock()
+        let agent = PomoAgentCore(productVersion: "0.1.0", clock: clock.clock)
+        _ = try await agent.startClassic()
+        clock.advance(monotonicBy: 0.25, wallBy: 10)
+        let paused = try await agent.pauseSession()
+        clock.advance(monotonicBy: 0, wallBy: 3_600)
+
+        let resumed = try await agent.resumeSession()
+
+        XCTAssertNil(paused.expectedTransitionAt)
+        XCTAssertEqual(
+            try XCTUnwrap(resumed.expectedTransitionAt),
+            timestamp(Date(timeIntervalSince1970: 5_109.75)))
+    }
+
     func testSleepBeforeDeadlinePausesWithPositiveRemainingTime() async throws {
         let clock = TestClock()
         let agent = PomoAgentCore(productVersion: "0.1.0", clock: clock.clock)
@@ -86,6 +130,40 @@ final class TimingTests: XCTestCase {
             _ = try await agent.resumeSession()
         }
     }
+
+    func testDuePhasesAdvanceFocusThenShortBreak() async throws {
+        let clock = TestClock()
+        let agent = PomoAgentCore(productVersion: "0.1.0", clock: clock.clock)
+        _ = try await agent.startClassic()
+        clock.advance(monotonicBy: 1_500, wallBy: 1_500)
+
+        let afterFocus = await agent.advanceIfDue()
+        clock.advance(monotonicBy: 300, wallBy: 300)
+        let afterBreak = await agent.advanceIfDue()
+
+        XCTAssertEqual(afterFocus.phaseType, .shortBreak)
+        XCTAssertEqual(afterFocus.sessionState, .running)
+        XCTAssertEqual(afterFocus.completedRounds, 1)
+        XCTAssertEqual(afterBreak.phaseType, .focus)
+        XCTAssertEqual(afterBreak.sessionState, .ready)
+        XCTAssertEqual(afterBreak.completedRounds, 1)
+    }
+
+    func testSkipTransitionsFocusToShortBreakAndBreakToReadyFocus() async throws {
+        let clock = TestClock()
+        let agent = PomoAgentCore(productVersion: "0.1.0", clock: clock.clock)
+        _ = try await agent.startClassic()
+
+        let afterFocusSkip = try await agent.skipPhase()
+        let afterBreakSkip = try await agent.skipPhase()
+
+        XCTAssertEqual(afterFocusSkip.phaseType, .shortBreak)
+        XCTAssertEqual(afterFocusSkip.sessionState, .running)
+        XCTAssertEqual(afterFocusSkip.completedRounds, 0)
+        XCTAssertEqual(afterBreakSkip.phaseType, .focus)
+        XCTAssertEqual(afterBreakSkip.sessionState, .ready)
+        XCTAssertEqual(afterBreakSkip.completedRounds, 0)
+    }
 }
 
 private final class TestClock: @unchecked Sendable {
@@ -118,4 +196,10 @@ private final class TestClock: @unchecked Sendable {
         defer { lock.unlock() }
         return wallNow
     }
+}
+
+private func timestamp(_ date: Date) -> String {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter.string(from: date)
 }

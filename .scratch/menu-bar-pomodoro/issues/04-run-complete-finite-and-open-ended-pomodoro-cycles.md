@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — Pause, resume, and survive sleep correctly
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Every Session Configuration has exactly one finite or open-ended boundary, and invalid duration, cadence, boundary, or conflicting override input is rejected before Agent mutation.
 - [ ] Natural Focus completion alone completes a Round and advances long-Break cadence; skipped or interrupted Focus never completes a Round.
@@ -21,3 +21,13 @@
 - Agent-owned `skip` IPC mutation now accepts the current Focus Phase while Running or Paused and deterministically creates a new running Short Break occurrence under the same Session. It leaves completed rounds at zero; persistence and focus accounting are intentionally not performed.
 - `swift test --filter IPCEnvelopeTests` passed: socket-level command/snapshot coverage verifies the new Short Break phase identity, configured break duration, zero completed rounds, and a later Status matching the Skip result.
 - `swift test` passed: 32 tests, 0 failures. `swift build` passed without diagnostics.
+- `swift test --filter TimingTests/testDuePhasesAdvanceFocusThenShortBreak` passed: an awake due Focus advances to a running Short Break, and a due Short Break selects a Ready Focus with Round progress preserved.
+- `swift test --filter TimingTests/testSkipTransitionsFocusToShortBreakAndBreakToReadyFocus` passed: Skip preserves Round progress, selects Short Break from Focus, and selects Ready Focus from a Break.
+- `swift test` passed: 36 tests, 0 failures; `swift build` passed after exposing Skip for active Breaks in the native menu.
+- `swift test --filter SessionConfigurationTests` passed: finite Session Configuration rejects non-positive targets before Agent mutation.
+- `swift test` passed: 37 tests, 0 failures; `swift build` passed after adding validated Configuration construction for duration, cadence, and boundary invariants.
+- `swift test --filter ClassicSessionTests/testStartUsesCompleteOpenEndedConfiguration` passed: Agent creation preserves a complete open-ended Configuration and starts its Focus Phase.
+- `swift test --filter ClassicSessionTests/testFiniteSessionEndsAfterItsFinalFocus` passed: a finite one-Round Session returns Idle on natural final Focus completion without a trailing Break.
+- `swift test` passed: 39 tests, 0 failures; `swift build` passed after adding generic validated-Configuration Session start.
+- `swift test --filter IPCEnvelopeTests/testStartWithConfigurationCreatesOpenEndedSession` passed: a complete open-ended Configuration traverses the IPC Start request and is returned in the Agent snapshot.
+- `swift test` passed: 40 tests, 0 failures; `swift build` passed after adding optional Configuration to IPC Start requests.

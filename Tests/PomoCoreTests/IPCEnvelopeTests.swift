@@ -35,6 +35,30 @@ final class IPCEnvelopeTests: XCTestCase {
         XCTAssertEqual(observed.result?.revision, started.result?.revision)
     }
 
+    func testStartWithConfigurationCreatesOpenEndedSession() async throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path
+        let server = try LocalAgentServer(path: path, agent: PomoAgentCore(productVersion: "0.1.0"))
+        defer { server.stop() }
+        let configuration = try SessionConfiguration(
+            focusSeconds: 60,
+            shortBreakSeconds: 15,
+            longBreakSeconds: 30,
+            longBreakEvery: 2,
+            openEnded: true,
+            targetRounds: nil,
+            autoStartFocus: false,
+            autoStartBreaks: true)
+
+        let response = try await LocalAgentClient(path: path).startResponse(
+            requestID: UUID(), configuration: configuration)
+
+        XCTAssertTrue(response.ok)
+        XCTAssertEqual(response.result?.configuration, configuration)
+        XCTAssertNil(response.result?.configuration?.targetRounds)
+        XCTAssertEqual(response.result?.remainingSeconds, 60)
+    }
+
     func testStopEndsSessionAndLaterStatusIsIdle() async throws {
         let path = FileManager.default.temporaryDirectory
             .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path
@@ -81,7 +105,8 @@ final class IPCEnvelopeTests: XCTestCase {
         XCTAssertEqual(rejected.error?.code, "invalid_state")
         XCTAssertEqual(rejected.error?.exitCode, 3)
         XCTAssertTrue(rejected.error?.message.contains("Current state: running") == true)
-        XCTAssertTrue(rejected.error?.message.contains("Valid next actions: pause, skip, stop") == true)
+        XCTAssertTrue(
+            rejected.error?.message.contains("Valid next actions: pause, skip, stop") == true)
         XCTAssertEqual(observed.result?.sessionID, first.result?.sessionID)
         XCTAssertEqual(observed.result?.revision, first.result?.revision)
     }
@@ -180,7 +205,8 @@ final class IPCEnvelopeTests: XCTestCase {
         XCTAssertFalse(rejected.ok)
         XCTAssertEqual(rejected.error?.code, "invalid_state")
         XCTAssertTrue(rejected.error?.message.contains("Current state: paused") == true)
-        XCTAssertTrue(rejected.error?.message.contains("Valid next actions: resume, skip, stop") == true)
+        XCTAssertTrue(
+            rejected.error?.message.contains("Valid next actions: resume, skip, stop") == true)
     }
 
     func testSkipFocusTransitionsToShortBreakWithoutCompletingRound() async throws {

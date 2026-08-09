@@ -24,7 +24,7 @@ struct PomoAgent {
 private final class IdleStatusItem: NSObject {
     private let agent: PomoAgentCore
     private let server: LocalAgentServer
-    private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var refreshTimer: Timer?
     private var sleepObserver: NSObjectProtocol?
 
@@ -52,7 +52,7 @@ private final class IdleStatusItem: NSObject {
     private func refresh() {
         Task { [weak self] in
             guard let self else { return }
-            let snapshot = await agent.snapshot()
+            let snapshot = await agent.advanceIfDue()
             rebuildMenu(for: snapshot)
         }
     }
@@ -84,10 +84,8 @@ private final class IdleStatusItem: NSObject {
                     withTitle: "Resume", action: #selector(resumeSession), keyEquivalent: "")
                 menu.items.last?.target = self
             }
-            if snapshot.phaseType == .focus {
-                menu.addItem(withTitle: "Skip", action: #selector(skipPhase), keyEquivalent: "")
-                menu.items.last?.target = self
-            }
+            menu.addItem(withTitle: "Skip", action: #selector(skipPhase), keyEquivalent: "")
+            menu.items.last?.target = self
             menu.addItem(
                 withTitle: "Stop Session", action: #selector(confirmStop), keyEquivalent: "")
             menu.items.last?.target = self
