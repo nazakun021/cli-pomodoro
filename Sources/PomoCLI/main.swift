@@ -81,7 +81,8 @@ struct PomoCLI {
 
     private static func follow(json: Bool) async {
         do {
-            let events = try await LocalAgentClient(path: RuntimeEndpoint.socketPath()).followEvents()
+            let events = try await LocalAgentClient(path: RuntimeEndpoint.socketPath())
+                .followEvents()
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
             for try await event in events {

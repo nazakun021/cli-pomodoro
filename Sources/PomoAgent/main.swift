@@ -226,7 +226,8 @@ private final class IdleStatusItem: NSObject {
         guard !alertPreferences.hasCompletedOnboarding else { return }
         let alert = NSAlert()
         alert.messageText = "Welcome to Pomo"
-        alert.informativeText = "Start a Classic Focus Session from the menu bar. You can change alerts in Settings."
+        alert.informativeText =
+            "Start a Classic Focus Session from the menu bar. You can change alerts in Settings."
         alert.addButton(withTitle: "Start Classic")
         alert.addButton(withTitle: "Open Alerts")
         alert.addButton(withTitle: "Later")

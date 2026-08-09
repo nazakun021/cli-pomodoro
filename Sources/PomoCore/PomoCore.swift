@@ -111,9 +111,11 @@ public final class SummaryStore: @unchecked Sendable {
             do {
                 let data = try Data(contentsOf: fileURL)
                 let decoded = try JSONDecoder().decode(State.self, from: data)
-                guard decoded.contributions.allSatisfy({
-                    !$0.date.isEmpty && $0.elapsedMilliseconds >= 0
-                }) else { throw SummaryStoreError.invalidStorage }
+                guard
+                    decoded.contributions.allSatisfy({
+                        !$0.date.isEmpty && $0.elapsedMilliseconds >= 0
+                    })
+                else { throw SummaryStoreError.invalidStorage }
                 state = decoded
             } catch let error as SummaryStoreError {
                 throw error
@@ -124,9 +126,11 @@ public final class SummaryStore: @unchecked Sendable {
     }
 
     public func record(_ contribution: FocusContribution) throws {
-        guard !state.contributions.contains(where: {
-            $0.phaseID == contribution.phaseID && $0.date == contribution.date
-        }) else {
+        guard
+            !state.contributions.contains(where: {
+                $0.phaseID == contribution.phaseID && $0.date == contribution.date
+            })
+        else {
             return
         }
         state.contributions.append(contribution)
