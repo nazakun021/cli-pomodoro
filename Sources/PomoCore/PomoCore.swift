@@ -1,5 +1,261 @@
 import Darwin
 import Foundation
+import SQLite3
+
+private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
+public struct Preset: Equatable, Sendable {
+    public static let classicID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+
+    public let id: UUID
+    public let name: String
+    public let configuration: SessionConfiguration
+    public let isClassic: Bool
+
+    public init(id: UUID, name: String, configuration: SessionConfiguration, isClassic: Bool) {
+        self.id = id
+        self.name = name
+        self.configuration = configuration
+        self.isClassic = isClassic
+    }
+
+    public static let classic = Preset(
+        id: classicID, name: "Classic", configuration: .classic, isClassic: true)
+}
+
+public enum PresetStoreError: Error, Equatable, Sendable {
+    case database
+    case invalidName
+    case duplicateName
+    case presetNotFound
+    case classicIsProtected
+}
+
+public final class PresetStore: @unchecked Sendable {
+    private var database: OpaquePointer?
+
+    public init(databaseURL: URL) throws {
+        guard sqlite3_open_v2(
+            databaseURL.path, &database, SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE, nil) == SQLITE_OK,
+            let database
+        else { throw PresetStoreError.database }
+        do {
+            try execute("PRAGMA foreign_keys = ON")
+            try execute("PRAGMA journal_mode = WAL")
+            try execute("PRAGMA synchronous = FULL")
+            try execute(
+                """
+                CREATE TABLE IF NOT EXISTS presets (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    name TEXT NOT NULL,
+                    normalized_name TEXT NOT NULL UNIQUE,
+                    focus_seconds INTEGER NOT NULL,
+                    short_break_seconds INTEGER NOT NULL,
+                    long_break_seconds INTEGER NOT NULL,
+                    long_break_every INTEGER NOT NULL,
+                    open_ended INTEGER NOT NULL,
+                    target_rounds INTEGER,
+                    auto_start_focus INTEGER NOT NULL,
+                    auto_start_breaks INTEGER NOT NULL,
+                    is_classic INTEGER NOT NULL DEFAULT 0
+                )
+                """)
+            try execute(
+                """
+                CREATE TABLE IF NOT EXISTS app_state (
+                    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                    default_preset_id TEXT NOT NULL REFERENCES presets(id)
+                )
+                """)
+            try seedClassic(in: database)
+        } catch {
+            sqlite3_close(database)
+            self.database = nil
+            throw error
+        }
+    }
+
+    deinit {
+        sqlite3_close(database)
+    }
+
+    public func presets() throws -> [Preset] {
+        try query(
+            "SELECT id, name, focus_seconds, short_break_seconds, long_break_seconds, long_break_every, open_ended, target_rounds, auto_start_focus, auto_start_breaks, is_classic FROM presets ORDER BY is_classic DESC, name COLLATE NOCASE")
+    }
+
+    public func defaultPreset() throws -> Preset {
+        let presets = try query(
+            "SELECT p.id, p.name, p.focus_seconds, p.short_break_seconds, p.long_break_seconds, p.long_break_every, p.open_ended, p.target_rounds, p.auto_start_focus, p.auto_start_breaks, p.is_classic FROM presets p JOIN app_state s ON s.default_preset_id = p.id WHERE s.singleton = 1")
+        guard let preset = presets.first else { throw PresetStoreError.database }
+        return preset
+    }
+
+    @discardableResult
+    public func create(name: String, configuration: SessionConfiguration) throws -> Preset {
+        let normalizedName = try normalizedName(name)
+        let preset = Preset(id: UUID(), name: name, configuration: configuration, isClassic: false)
+        guard let database else { throw PresetStoreError.database }
+        var statement: OpaquePointer?
+        let sql = "INSERT INTO presets (id, name, normalized_name, focus_seconds, short_break_seconds, long_break_seconds, long_break_every, open_ended, target_rounds, auto_start_focus, auto_start_breaks, is_classic) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)"
+        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw PresetStoreError.database
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, preset.id.uuidString.lowercased(), -1, sqliteTransient)
+        sqlite3_bind_text(statement, 2, preset.name, -1, sqliteTransient)
+        sqlite3_bind_text(statement, 3, normalizedName, -1, sqliteTransient)
+        sqlite3_bind_int(statement, 4, Int32(configuration.focusSeconds))
+        sqlite3_bind_int(statement, 5, Int32(configuration.shortBreakSeconds))
+        sqlite3_bind_int(statement, 6, Int32(configuration.longBreakSeconds))
+        sqlite3_bind_int(statement, 7, Int32(configuration.longBreakEvery))
+        sqlite3_bind_int(statement, 8, configuration.openEnded ? 1 : 0)
+        if let targetRounds = configuration.targetRounds {
+            sqlite3_bind_int(statement, 9, Int32(targetRounds))
+        } else {
+            sqlite3_bind_null(statement, 9)
+        }
+        sqlite3_bind_int(statement, 10, configuration.autoStartFocus ? 1 : 0)
+        sqlite3_bind_int(statement, 11, configuration.autoStartBreaks ? 1 : 0)
+        let result = sqlite3_step(statement)
+        if result == SQLITE_CONSTRAINT { throw PresetStoreError.duplicateName }
+        guard result == SQLITE_DONE else { throw PresetStoreError.database }
+        return preset
+    }
+
+    public func selectDefault(id: UUID) throws {
+        guard let database else { throw PresetStoreError.database }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            database, "UPDATE app_state SET default_preset_id = ? WHERE singleton = 1", -1,
+            &statement, nil) == SQLITE_OK
+        else { throw PresetStoreError.database }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, id.uuidString.lowercased(), -1, sqliteTransient)
+        guard sqlite3_step(statement) == SQLITE_DONE else { throw PresetStoreError.database }
+        guard sqlite3_changes(database) == 1,
+            (try? preset(id: id)) != nil
+        else { throw PresetStoreError.presetNotFound }
+    }
+
+    public func delete(id: UUID) throws {
+        guard id != Preset.classicID else { throw PresetStoreError.classicIsProtected }
+        let idValue = id.uuidString.lowercased()
+        try execute("BEGIN IMMEDIATE TRANSACTION")
+        do {
+            try execute(
+                "UPDATE app_state SET default_preset_id = '\(Preset.classicID.uuidString.lowercased())' WHERE singleton = 1 AND default_preset_id = '\(idValue)'")
+            try execute("DELETE FROM presets WHERE id = '\(idValue)' AND is_classic = 0")
+            guard let database, sqlite3_changes(database) == 1 else {
+                throw PresetStoreError.presetNotFound
+            }
+            try execute("COMMIT")
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
+    @discardableResult
+    public func duplicate(id: UUID, name: String) throws -> Preset {
+        guard let source = try preset(id: id) else { throw PresetStoreError.presetNotFound }
+        return try create(name: name, configuration: source.configuration)
+    }
+
+    public func update(id: UUID, name: String, configuration: SessionConfiguration) throws {
+        guard id != Preset.classicID else { throw PresetStoreError.classicIsProtected }
+        let normalizedName = try normalizedName(name)
+        guard let database else { throw PresetStoreError.database }
+        var statement: OpaquePointer?
+        let sql = "UPDATE presets SET name = ?, normalized_name = ?, focus_seconds = ?, short_break_seconds = ?, long_break_seconds = ?, long_break_every = ?, open_ended = ?, target_rounds = ?, auto_start_focus = ?, auto_start_breaks = ? WHERE id = ? AND is_classic = 0"
+        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw PresetStoreError.database
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, name, -1, sqliteTransient)
+        sqlite3_bind_text(statement, 2, normalizedName, -1, sqliteTransient)
+        sqlite3_bind_int(statement, 3, Int32(configuration.focusSeconds))
+        sqlite3_bind_int(statement, 4, Int32(configuration.shortBreakSeconds))
+        sqlite3_bind_int(statement, 5, Int32(configuration.longBreakSeconds))
+        sqlite3_bind_int(statement, 6, Int32(configuration.longBreakEvery))
+        sqlite3_bind_int(statement, 7, configuration.openEnded ? 1 : 0)
+        if let targetRounds = configuration.targetRounds {
+            sqlite3_bind_int(statement, 8, Int32(targetRounds))
+        } else {
+            sqlite3_bind_null(statement, 8)
+        }
+        sqlite3_bind_int(statement, 9, configuration.autoStartFocus ? 1 : 0)
+        sqlite3_bind_int(statement, 10, configuration.autoStartBreaks ? 1 : 0)
+        sqlite3_bind_text(statement, 11, id.uuidString.lowercased(), -1, sqliteTransient)
+        let result = sqlite3_step(statement)
+        if result == SQLITE_CONSTRAINT { throw PresetStoreError.duplicateName }
+        guard result == SQLITE_DONE else { throw PresetStoreError.database }
+        guard sqlite3_changes(database) == 1 else { throw PresetStoreError.presetNotFound }
+    }
+
+    private func seedClassic(in database: OpaquePointer) throws {
+        try execute("BEGIN IMMEDIATE TRANSACTION")
+        do {
+            let classic = Preset.classic
+            try execute(
+                "INSERT OR IGNORE INTO presets VALUES ('\(classic.id.uuidString.lowercased())', 'Classic', 'classic', 1500, 300, 900, 4, 0, 4, 0, 1, 1)")
+            try execute(
+                "INSERT OR IGNORE INTO app_state (singleton, default_preset_id) VALUES (1, '\(classic.id.uuidString.lowercased())')")
+            try execute("COMMIT")
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
+    private func query(_ sql: String) throws -> [Preset] {
+        guard let database else { throw PresetStoreError.database }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw PresetStoreError.database
+        }
+        defer { sqlite3_finalize(statement) }
+        var results: [Preset] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let idValue = sqlite3_column_text(statement, 0),
+                let id = UUID(uuidString: String(cString: idValue)),
+                let nameValue = sqlite3_column_text(statement, 1)
+            else { throw PresetStoreError.database }
+            let configuration = try SessionConfiguration(
+                focusSeconds: Int(sqlite3_column_int(statement, 2)),
+                shortBreakSeconds: Int(sqlite3_column_int(statement, 3)),
+                longBreakSeconds: Int(sqlite3_column_int(statement, 4)),
+                longBreakEvery: Int(sqlite3_column_int(statement, 5)),
+                openEnded: sqlite3_column_int(statement, 6) != 0,
+                targetRounds: sqlite3_column_type(statement, 7) == SQLITE_NULL
+                    ? nil : Int(sqlite3_column_int(statement, 7)),
+                autoStartFocus: sqlite3_column_int(statement, 8) != 0,
+                autoStartBreaks: sqlite3_column_int(statement, 9) != 0)
+            results.append(Preset(
+                id: id, name: String(cString: nameValue), configuration: configuration,
+                isClassic: sqlite3_column_int(statement, 10) != 0))
+        }
+        return results
+    }
+
+    private func preset(id: UUID) throws -> Preset? {
+        let presets = try query(
+            "SELECT id, name, focus_seconds, short_break_seconds, long_break_seconds, long_break_every, open_ended, target_rounds, auto_start_focus, auto_start_breaks, is_classic FROM presets WHERE id = '\(id.uuidString.lowercased())'")
+        return presets.first
+    }
+
+    private func normalizedName(_ name: String) throws -> String {
+        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { throw PresetStoreError.invalidName }
+        return normalized
+    }
+
+    private func execute(_ sql: String) throws {
+        guard let database, sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
+            throw PresetStoreError.database
+        }
+    }
+}
 
 public enum AgentState: String, Codable, Sendable {
     case notRunning = "not_running"
