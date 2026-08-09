@@ -16,7 +16,8 @@ struct PomoAgent {
         else {
             return
         }
-        let summaryURL = applicationSupportDirectory
+        let summaryURL =
+            applicationSupportDirectory
             .appendingPathComponent("Pomo", isDirectory: true)
             .appendingPathComponent("summary.json")
         guard let summaryStore = try? SummaryStore(fileURL: summaryURL) else {

@@ -2175,12 +2175,10 @@ public actor PomoAgentCore {
         }
 
         if activeSession.phaseType == .focus {
-            let contribution = FocusContribution(
-                phaseID: activeSession.phaseID,
-                date: localDateString(clock.wallNow()),
+            recordFocusContribution(
+                from: activeSession,
                 elapsedMilliseconds: Int64(activeSession.duration) * 1_000,
                 completedRound: true)
-            try? summaryStore?.record(contribution)
         }
         self.activeSession = activeSession.completed(
             wallTime: clock.wallNow(), monotonicTime: clock.monotonicNow())
@@ -2236,6 +2234,14 @@ public actor PomoAgentCore {
             return cached
         }
         guard activeSession != nil else { throw AgentCommandError.noActiveSession }
+        if let activeSession, activeSession.phaseType == .focus {
+            let remaining = activeSession.remainingDuration(at: clock.monotonicNow())
+            let elapsed = max(0, Double(activeSession.duration) - remaining)
+            recordFocusContribution(
+                from: activeSession,
+                elapsedMilliseconds: Int64((elapsed * 1_000).rounded(.down)),
+                completedRound: false)
+        }
         activeSession = nil
         revision += 1
         let result = snapshot()
@@ -2277,6 +2283,20 @@ public actor PomoAgentCore {
 
     private func removeFollower(_ id: UUID) {
         snapshotFollowers.removeValue(forKey: id)
+    }
+
+    private func recordFocusContribution(
+        from session: ActiveSession,
+        elapsedMilliseconds: Int64,
+        completedRound: Bool
+    ) {
+        guard elapsedMilliseconds > 0 else { return }
+        let contribution = FocusContribution(
+            phaseID: session.phaseID,
+            date: localDateString(clock.wallNow()),
+            elapsedMilliseconds: elapsedMilliseconds,
+            completedRound: completedRound)
+        try? summaryStore?.record(contribution)
     }
 
     fileprivate func handshakeInfo() -> AgentHandshakeInfo {
