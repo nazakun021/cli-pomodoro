@@ -28,3 +28,4 @@
 - `swift test` and `swift build` passed after IPC envelope work: Status now uses a versioned, Agent-bound request and returns a correlated response with the negotiated protocol version and original request ID.
 - `swift test` and `swift build` passed after runtime endpoint hardening: Agent startup creates and verifies an owner-only `pomo` runtime directory before binding the versioned socket.
 - `swift test` and `swift build` passed after UUID validation: public Idle snapshots encode Agent identity as canonical lowercase UUID text.
+- `swift test` and `swift build` passed after framing validation: zero-length, truncated, oversized, and declared-length-mismatched frames are rejected before JSON decoding.
