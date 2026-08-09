@@ -23,3 +23,4 @@
 - `swift build` passed without diagnostics.
 - `swift test --filter IPCEnvelopeTests` passed: accepted IPC Start returns a Running Focus snapshot and a later Status observes the same Session identity and revision.
 - `swift test` passed after IPC Start routing: 16 tests, 0 failures.
+- `swift run PomoAgent`, `swift run pomo start --json`, then `swift run pomo status --json` demonstrated the same Agent-owned Running Focus Session after the Start CLI invocation exited.

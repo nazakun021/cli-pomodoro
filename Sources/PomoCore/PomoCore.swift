@@ -178,8 +178,12 @@ public struct PublicResponse: Codable, Equatable, Sendable {
     public let error: PublicError?
 
     public static func success(snapshot: AgentSnapshot) -> PublicResponse {
+        success(command: "status", snapshot: snapshot)
+    }
+
+    public static func success(command: String, snapshot: AgentSnapshot) -> PublicResponse {
         PublicResponse(
-            schemaVersion: 1, command: "status", ok: true, data: snapshot, error: nil)
+            schemaVersion: 1, command: command, ok: true, data: snapshot, error: nil)
     }
 
     public static func agentNotRunning() -> PublicResponse {
@@ -744,6 +748,12 @@ public struct LocalAgentClient: Sendable {
         let response = try await statusResponse(requestID: UUID())
         guard let snapshot = response.result else { throw LocalAgentTransportError.invalidResponse }
         return PublicResponse.success(snapshot: snapshot)
+    }
+
+    public func startClassic() async throws -> PublicResponse {
+        let response = try await startClassicResponse(requestID: UUID())
+        guard let snapshot = response.result else { throw LocalAgentTransportError.invalidResponse }
+        return PublicResponse.success(command: "start", snapshot: snapshot)
     }
 
     public func statusResponse(requestID: UUID) async throws -> IPCResponse {
