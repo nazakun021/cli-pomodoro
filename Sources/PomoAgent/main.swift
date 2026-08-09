@@ -1,6 +1,6 @@
 import AppKit
 import PomoCore
-import UserNotifications
+@preconcurrency import UserNotifications
 
 struct PomoAgent {
     @MainActor
@@ -37,11 +37,20 @@ struct PomoAgent {
             return
         }
         let priorInterruption = lifecycleStore.consumeUnexpectedTermination()
+        let notificationDelegate = PomoNotificationDelegate(agent: agent)
+        UNUserNotificationCenter.current().delegate = notificationDelegate
+        let startNext = UNNotificationAction(
+            identifier: "POMO_START_NEXT", title: "Start Next Phase", options: [])
+        let phaseCategory = UNNotificationCategory(
+            identifier: "POMO_PHASE", actions: [startNext], intentIdentifiers: [])
+        UNUserNotificationCenter.current().setNotificationCategories([phaseCategory])
         let statusItem = IdleStatusItem(
             agent: agent, server: server, presetStore: presetStore, lifecycleStore: lifecycleStore,
             priorInterruption: priorInterruption)
         withExtendedLifetime(statusItem) {
-            application.run()
+            withExtendedLifetime(notificationDelegate) {
+                application.run()
+            }
         }
     }
 }
@@ -321,6 +330,9 @@ private final class IdleStatusItem: NSObject {
             }
             content.body = body
             content.sound = preferences.soundEnabled ? .default : nil
+            if current.sessionState == .ready {
+                content.categoryIdentifier = "POMO_PHASE"
+            }
             let phaseID = current.phaseID ?? previous.phaseID ?? UUID()
             let request = UNNotificationRequest(
                 identifier: "pomo-phase-\(phaseID.uuidString)",
@@ -429,5 +441,37 @@ private final class IdleStatusItem: NSObject {
                 format: "%d:%02d:%02d", seconds / 3_600, (seconds / 60) % 60, seconds % 60)
         }
         return String(format: "%02d:%02d", seconds / 60, seconds % 60)
+    }
+}
+
+@MainActor
+private final class PomoNotificationDelegate: NSObject, @preconcurrency UNUserNotificationCenterDelegate {
+    private let agent: PomoAgentCore
+
+    init(agent: PomoAgentCore) {
+        self.agent = agent
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        if response.actionIdentifier == "POMO_START_NEXT" {
+            Task { @MainActor [agent] in
+                let identifier = response.notification.request.identifier
+                    .replacingOccurrences(of: "pomo-phase-", with: "")
+                let snapshot = await agent.snapshot()
+                if snapshot.sessionState == .ready,
+                    snapshot.phaseID?.uuidString == identifier
+                {
+                    _ = try? await agent.resumeSession()
+                }
+                completionHandler()
+            }
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+            completionHandler()
+        }
     }
 }
