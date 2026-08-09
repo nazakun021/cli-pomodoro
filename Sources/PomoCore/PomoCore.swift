@@ -132,11 +132,13 @@ public final class SummaryStore: @unchecked Sendable {
     public func record(_ contributions: [FocusContribution]) throws {
         var additions: [FocusContribution] = []
         for contribution in contributions {
-            let isDuplicate = state.contributions.contains {
-                $0.phaseID == contribution.phaseID && $0.date == contribution.date
-            } || additions.contains {
-                $0.phaseID == contribution.phaseID && $0.date == contribution.date
-            }
+            let isDuplicate =
+                state.contributions.contains {
+                    $0.phaseID == contribution.phaseID && $0.date == contribution.date
+                }
+                || additions.contains {
+                    $0.phaseID == contribution.phaseID && $0.date == contribution.date
+                }
             if !isDuplicate { additions.append(contribution) }
         }
         guard !additions.isEmpty else { return }
@@ -2187,10 +2189,12 @@ public actor PomoAgentCore {
         }
 
         if activeSession.phaseType == .focus {
-            guard recordFocusContribution(
-                from: activeSession,
-                elapsedMilliseconds: Int64(activeSession.duration) * 1_000,
-                completedRound: true) else { return snapshot() }
+            guard
+                recordFocusContribution(
+                    from: activeSession,
+                    elapsedMilliseconds: Int64(activeSession.duration) * 1_000,
+                    completedRound: true)
+            else { return snapshot() }
         }
         self.activeSession = activeSession.completed(
             wallTime: clock.wallNow(), monotonicTime: clock.monotonicNow())
@@ -2222,10 +2226,12 @@ public actor PomoAgentCore {
         if activeSession.phaseType == .focus {
             let remaining = activeSession.remainingDuration(at: clock.monotonicNow())
             let elapsed = max(0, Double(activeSession.duration) - remaining)
-            guard recordFocusContribution(
-                from: activeSession,
-                elapsedMilliseconds: Int64((elapsed * 1_000).rounded(.down)),
-                completedRound: false) else { throw AgentCommandError.accountingFailed }
+            guard
+                recordFocusContribution(
+                    from: activeSession,
+                    elapsedMilliseconds: Int64((elapsed * 1_000).rounded(.down)),
+                    completedRound: false)
+            else { throw AgentCommandError.accountingFailed }
         }
         self.activeSession = activeSession.skipped(
             wallTime: clock.wallNow(), monotonicTime: clock.monotonicNow())
@@ -2257,10 +2263,12 @@ public actor PomoAgentCore {
         if let activeSession, activeSession.phaseType == .focus {
             let remaining = activeSession.remainingDuration(at: clock.monotonicNow())
             let elapsed = max(0, Double(activeSession.duration) - remaining)
-            guard recordFocusContribution(
-                from: activeSession,
-                elapsedMilliseconds: Int64((elapsed * 1_000).rounded(.down)),
-                completedRound: false) else { throw AgentCommandError.accountingFailed }
+            guard
+                recordFocusContribution(
+                    from: activeSession,
+                    elapsedMilliseconds: Int64((elapsed * 1_000).rounded(.down)),
+                    completedRound: false)
+            else { throw AgentCommandError.accountingFailed }
         }
         activeSession = nil
         revision += 1
@@ -2320,11 +2328,11 @@ public actor PomoAgentCore {
         if end < start {
             do {
                 try summaryStore.record([
-                FocusContribution(
-                    phaseID: session.phaseID,
-                    date: localDateString(end),
-                    elapsedMilliseconds: elapsedMilliseconds,
-                    completedRound: completedRound)
+                    FocusContribution(
+                        phaseID: session.phaseID,
+                        date: localDateString(end),
+                        elapsedMilliseconds: elapsedMilliseconds,
+                        completedRound: completedRound)
                 ])
                 return true
             } catch { return false }
@@ -2347,7 +2355,8 @@ public actor PomoAgentCore {
                     max(0, Int64(((segmentEnd.timeIntervalSince(cursor)) * 1_000).rounded(.down))))
             }
             if segmentMilliseconds > 0 {
-                contributions.append(FocusContribution(
+                contributions.append(
+                    FocusContribution(
                         phaseID: session.phaseID,
                         date: localDateString(cursor),
                         elapsedMilliseconds: segmentMilliseconds,

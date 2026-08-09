@@ -90,7 +90,8 @@ struct PomoCLI {
                     FileHandle.standardOutput.write(try encoder.encode(event))
                     FileHandle.standardOutput.write(Data("\n".utf8))
                 } else if let snapshot = event.snapshot {
-                    let phase = snapshot.phaseType?.rawValue
+                    let phase =
+                        snapshot.phaseType?.rawValue
                         .replacingOccurrences(of: "_", with: " ") ?? "idle"
                     let state = snapshot.sessionState?.rawValue ?? snapshot.agentState.rawValue
                     let remaining = snapshot.remainingSeconds.map(String.init) ?? "-"
