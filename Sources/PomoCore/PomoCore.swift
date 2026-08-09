@@ -253,6 +253,8 @@ public enum LocalAgentTransportError: Error, Equatable, Sendable {
     case writeFailed
     case invalidResponse
     case protocolMismatch
+    case runtimeDirectoryFailed
+    case insecureRuntimeDirectory
 }
 
 public struct IPCCommand: Codable, Equatable, Sendable {
@@ -352,9 +354,42 @@ public struct IPCResponse: Codable, Equatable, Sendable {
 
 public enum RuntimeEndpoint {
     public static func socketPath() -> String {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("pomo-agent-v1.sock")
+        runtimeDirectory(in: FileManager.default.temporaryDirectory)
+            .appendingPathComponent("agent-v1.sock")
             .path
+    }
+
+    public static func prepare() throws -> String {
+        try prepare(in: FileManager.default.temporaryDirectory)
+    }
+
+    public static func prepare(in root: URL) throws -> String {
+        let directory = runtimeDirectory(in: root)
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+        } catch {
+            throw LocalAgentTransportError.runtimeDirectoryFailed
+        }
+
+        guard chmod(directory.path, 0o700) == 0 else {
+            throw LocalAgentTransportError.runtimeDirectoryFailed
+        }
+        var metadata = stat()
+        guard stat(directory.path, &metadata) == 0 else {
+            throw LocalAgentTransportError.runtimeDirectoryFailed
+        }
+        guard metadata.st_uid == getuid(), metadata.st_mode & 0o777 == 0o700 else {
+            throw LocalAgentTransportError.insecureRuntimeDirectory
+        }
+        return directory.appendingPathComponent("agent-v1.sock").path
+    }
+
+    private static func runtimeDirectory(in root: URL) -> URL {
+        root.appendingPathComponent("pomo", isDirectory: true)
     }
 }
 
