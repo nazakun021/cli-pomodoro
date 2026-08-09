@@ -23,3 +23,5 @@
 - `swift run pomo --json` passed: standard output contains one JSON envelope with `error.code` `usage`, and the command exits 2.
 - TTY validation: bare `pomo` reached a line-oriented Classic review with complete duration, boundary, and auto-start values, followed by an explicit `Start this Session? [y/N]` confirmation.
 - `swift test` passed: 53 tests, 0 failures. `swift build` and touched-file diagnostics passed.
+- Plain setup now accepts duration, cadence, boundary, and auto-start overrides; it resolves a complete Configuration before review, keeps entries as prompt defaults after validation failure, and rejects invalid boolean input locally.
+- Final validation: `swift build` and `swift test` passed with 53 tests, 0 failures; `git diff --check` and touched-file diagnostics passed.

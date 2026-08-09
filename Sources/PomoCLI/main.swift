@@ -69,20 +69,76 @@ struct PomoCLI {
     }
 
     private static func runPlainSetup() async {
-        let configuration = SessionConfiguration.classic
+        var focus = "25m"
+        var shortBreak = "5m"
+        var longBreak = "15m"
+        var cadence = "4"
+        var rounds = "4"
+        var openEnded = false
+        var autoStartFocus = false
+        var autoStartBreaks = true
+
+        let configuration: SessionConfiguration
+        while true {
+            print("Pomo setup")
+            print("Preset: Classic (customize values below; press Enter to keep a value)")
+            focus = prompt("Focus duration", current: focus)
+            shortBreak = prompt("Short Break duration", current: shortBreak)
+            longBreak = prompt("Long Break duration", current: longBreak)
+            cadence = prompt("Long Break cadence", current: cadence)
+            openEnded = promptBoolean("Open-ended", current: openEnded)
+            if !openEnded {
+                rounds = prompt("Rounds", current: rounds)
+            }
+            autoStartFocus = promptBoolean("Auto-start Focus", current: autoStartFocus)
+            autoStartBreaks = promptBoolean("Auto-start Breaks", current: autoStartBreaks)
+            do {
+                configuration = try PresetConfigurationDraft(
+                    focus: focus, shortBreak: shortBreak, longBreak: longBreak,
+                    longBreakEvery: cadence, rounds: rounds, openEnded: openEnded,
+                    autoStartFocus: autoStartFocus, autoStartBreaks: autoStartBreaks
+                ).configuration()
+                break
+            } catch {
+                print("Check the highlighted value format and try again. Your entries are retained.")
+            }
+        }
+
         print("Pomo setup")
-        print("Preset: Classic")
-        print("Focus: \(configuration.focusSeconds)s | Short Break: \(configuration.shortBreakSeconds)s | Long Break: \(configuration.longBreakSeconds)s")
-        print("Rounds: \(configuration.targetRounds ?? 0) | Auto-start Focus: \(configuration.autoStartFocus ? "on" : "off") | Auto-start Breaks: \(configuration.autoStartBreaks ? "on" : "off")")
+        print("Review: Classic with one-session overrides")
+        print(
+            "Focus: \(configuration.focusSeconds)s | Short Break: \(configuration.shortBreakSeconds)s | Long Break: \(configuration.longBreakSeconds)s"
+        )
+        print(
+            "Rounds: \(configuration.targetRounds ?? 0) | Auto-start Focus: \(configuration.autoStartFocus ? "on" : "off") | Auto-start Breaks: \(configuration.autoStartBreaks ? "on" : "off")"
+        )
         print("Start this Session? [y/N]", terminator: " ")
         guard let answer = readLine()?.lowercased(), answer == "y" || answer == "yes" else {
             print("Setup cancelled.")
             return
         }
-        let response = await commandResponse(command: "start", replace: false, configuration: nil)
+        let response = await commandResponse(
+            command: "start", replace: false, configuration: configuration)
         write(response, json: false)
         if !response.ok {
             Foundation.exit(Int32(response.error?.exitCode ?? 1))
+        }
+    }
+
+    private static func prompt(_ label: String, current: String) -> String {
+        print("\(label) [\(current)]", terminator: " ")
+        guard let value = readLine(), !value.isEmpty else { return current }
+        return value
+    }
+
+    private static func promptBoolean(_ label: String, current: Bool) -> Bool {
+        while true {
+            let answer = prompt(label, current: current ? "y" : "n").lowercased()
+            switch answer {
+            case "y", "yes": return true
+            case "n", "no": return false
+            default: print("Enter y or n.")
+            }
         }
     }
 
