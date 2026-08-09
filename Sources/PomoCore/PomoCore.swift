@@ -25,6 +25,7 @@ public struct Preset: Equatable, Sendable {
 
 public enum PresetStoreError: Error, Equatable, Sendable {
     case database
+    case insecureStorage
     case invalidName
     case duplicateName
     case presetNotFound
@@ -34,9 +35,31 @@ public enum PresetStoreError: Error, Equatable, Sendable {
 public final class PresetStore: @unchecked Sendable {
     private var database: OpaquePointer?
 
+    public static func applicationSupportStore(in root: URL) throws -> PresetStore {
+        let directory = root.appendingPathComponent("Pomo", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700])
+        } catch {
+            throw PresetStoreError.database
+        }
+        guard chmod(directory.path, 0o700) == 0, isOwnerOnly(directory, mode: 0o700) else {
+            throw PresetStoreError.insecureStorage
+        }
+        let databaseURL = directory.appendingPathComponent("pomo.sqlite")
+        let store = try PresetStore(databaseURL: databaseURL)
+        guard chmod(databaseURL.path, 0o600) == 0, isOwnerOnly(databaseURL, mode: 0o600)
+        else { throw PresetStoreError.insecureStorage }
+        return store
+    }
+
     public init(databaseURL: URL) throws {
-        guard sqlite3_open_v2(
-            databaseURL.path, &database, SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE, nil) == SQLITE_OK,
+        guard
+            sqlite3_open_v2(
+                databaseURL.path, &database, SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE, nil)
+                == SQLITE_OK,
             let database
         else { throw PresetStoreError.database }
         do {
@@ -49,23 +72,44 @@ public final class PresetStore: @unchecked Sendable {
                     id TEXT PRIMARY KEY NOT NULL,
                     name TEXT NOT NULL,
                     normalized_name TEXT NOT NULL UNIQUE,
-                    focus_seconds INTEGER NOT NULL,
-                    short_break_seconds INTEGER NOT NULL,
-                    long_break_seconds INTEGER NOT NULL,
-                    long_break_every INTEGER NOT NULL,
-                    open_ended INTEGER NOT NULL,
+                    focus_seconds INTEGER NOT NULL CHECK (focus_seconds BETWEEN 1 AND 86400),
+                    short_break_seconds INTEGER NOT NULL CHECK (short_break_seconds BETWEEN 1 AND 86400),
+                    long_break_seconds INTEGER NOT NULL CHECK (long_break_seconds BETWEEN 1 AND 86400),
+                    long_break_every INTEGER NOT NULL CHECK (long_break_every >= 1),
+                    open_ended INTEGER NOT NULL CHECK (open_ended IN (0, 1)),
                     target_rounds INTEGER,
-                    auto_start_focus INTEGER NOT NULL,
-                    auto_start_breaks INTEGER NOT NULL,
-                    is_classic INTEGER NOT NULL DEFAULT 0
+                    auto_start_focus INTEGER NOT NULL CHECK (auto_start_focus IN (0, 1)),
+                    auto_start_breaks INTEGER NOT NULL CHECK (auto_start_breaks IN (0, 1)),
+                    is_classic INTEGER NOT NULL DEFAULT 0 CHECK (is_classic IN (0, 1)),
+                    last_started_sequence INTEGER,
+                    CHECK ((open_ended = 1 AND target_rounds IS NULL) OR (open_ended = 0 AND target_rounds >= 1))
                 )
                 """)
             try execute(
                 """
                 CREATE TABLE IF NOT EXISTS app_state (
                     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-                    default_preset_id TEXT NOT NULL REFERENCES presets(id)
+                    default_preset_id TEXT NOT NULL REFERENCES presets(id),
+                    next_start_sequence INTEGER NOT NULL DEFAULT 0
                 )
+                """)
+            try execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS protect_classic_update
+                BEFORE UPDATE ON presets
+                WHEN OLD.is_classic = 1
+                BEGIN
+                    SELECT RAISE(ABORT, 'Classic Preset is immutable');
+                END
+                """)
+            try execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS protect_classic_delete
+                BEFORE DELETE ON presets
+                WHEN OLD.is_classic = 1
+                BEGIN
+                    SELECT RAISE(ABORT, 'Classic Preset is immutable');
+                END
                 """)
             try seedClassic(in: database)
         } catch {
@@ -81,14 +125,42 @@ public final class PresetStore: @unchecked Sendable {
 
     public func presets() throws -> [Preset] {
         try query(
-            "SELECT id, name, focus_seconds, short_break_seconds, long_break_seconds, long_break_every, open_ended, target_rounds, auto_start_focus, auto_start_breaks, is_classic FROM presets ORDER BY is_classic DESC, name COLLATE NOCASE")
+            "SELECT id, name, focus_seconds, short_break_seconds, long_break_seconds, long_break_every, open_ended, target_rounds, auto_start_focus, auto_start_breaks, is_classic FROM presets ORDER BY is_classic DESC, name COLLATE NOCASE"
+        )
     }
 
     public func defaultPreset() throws -> Preset {
         let presets = try query(
-            "SELECT p.id, p.name, p.focus_seconds, p.short_break_seconds, p.long_break_seconds, p.long_break_every, p.open_ended, p.target_rounds, p.auto_start_focus, p.auto_start_breaks, p.is_classic FROM presets p JOIN app_state s ON s.default_preset_id = p.id WHERE s.singleton = 1")
+            "SELECT p.id, p.name, p.focus_seconds, p.short_break_seconds, p.long_break_seconds, p.long_break_every, p.open_ended, p.target_rounds, p.auto_start_focus, p.auto_start_breaks, p.is_classic FROM presets p JOIN app_state s ON s.default_preset_id = p.id WHERE s.singleton = 1"
+        )
         guard let preset = presets.first else { throw PresetStoreError.database }
         return preset
+    }
+
+    public func recentPresets() throws -> [Preset] {
+        try query(
+            "SELECT p.id, p.name, p.focus_seconds, p.short_break_seconds, p.long_break_seconds, p.long_break_every, p.open_ended, p.target_rounds, p.auto_start_focus, p.auto_start_breaks, p.is_classic FROM presets p JOIN app_state s ON s.singleton = 1 WHERE p.id != s.default_preset_id AND p.last_started_sequence IS NOT NULL ORDER BY p.last_started_sequence DESC LIMIT 3"
+        )
+    }
+
+    public func recordAcceptedStart(for id: UUID) throws {
+        let idValue = id.uuidString.lowercased()
+        try execute("BEGIN IMMEDIATE TRANSACTION")
+        do {
+            try execute(
+                "UPDATE app_state SET next_start_sequence = next_start_sequence + 1 WHERE singleton = 1"
+            )
+            try execute(
+                "UPDATE presets SET last_started_sequence = (SELECT next_start_sequence FROM app_state WHERE singleton = 1) WHERE id = '\(idValue)'"
+            )
+            guard let database, sqlite3_changes(database) == 1 else {
+                throw PresetStoreError.presetNotFound
+            }
+            try execute("COMMIT")
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
     }
 
     @discardableResult
@@ -97,7 +169,8 @@ public final class PresetStore: @unchecked Sendable {
         let preset = Preset(id: UUID(), name: name, configuration: configuration, isClassic: false)
         guard let database else { throw PresetStoreError.database }
         var statement: OpaquePointer?
-        let sql = "INSERT INTO presets (id, name, normalized_name, focus_seconds, short_break_seconds, long_break_seconds, long_break_every, open_ended, target_rounds, auto_start_focus, auto_start_breaks, is_classic) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)"
+        let sql =
+            "INSERT INTO presets (id, name, normalized_name, focus_seconds, short_break_seconds, long_break_seconds, long_break_every, open_ended, target_rounds, auto_start_focus, auto_start_breaks, is_classic) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)"
         guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
             throw PresetStoreError.database
         }
@@ -126,9 +199,10 @@ public final class PresetStore: @unchecked Sendable {
     public func selectDefault(id: UUID) throws {
         guard let database else { throw PresetStoreError.database }
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(
-            database, "UPDATE app_state SET default_preset_id = ? WHERE singleton = 1", -1,
-            &statement, nil) == SQLITE_OK
+        guard
+            sqlite3_prepare_v2(
+                database, "UPDATE app_state SET default_preset_id = ? WHERE singleton = 1", -1,
+                &statement, nil) == SQLITE_OK
         else { throw PresetStoreError.database }
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_text(statement, 1, id.uuidString.lowercased(), -1, sqliteTransient)
@@ -144,7 +218,8 @@ public final class PresetStore: @unchecked Sendable {
         try execute("BEGIN IMMEDIATE TRANSACTION")
         do {
             try execute(
-                "UPDATE app_state SET default_preset_id = '\(Preset.classicID.uuidString.lowercased())' WHERE singleton = 1 AND default_preset_id = '\(idValue)'")
+                "UPDATE app_state SET default_preset_id = '\(Preset.classicID.uuidString.lowercased())' WHERE singleton = 1 AND default_preset_id = '\(idValue)'"
+            )
             try execute("DELETE FROM presets WHERE id = '\(idValue)' AND is_classic = 0")
             guard let database, sqlite3_changes(database) == 1 else {
                 throw PresetStoreError.presetNotFound
@@ -167,7 +242,8 @@ public final class PresetStore: @unchecked Sendable {
         let normalizedName = try normalizedName(name)
         guard let database else { throw PresetStoreError.database }
         var statement: OpaquePointer?
-        let sql = "UPDATE presets SET name = ?, normalized_name = ?, focus_seconds = ?, short_break_seconds = ?, long_break_seconds = ?, long_break_every = ?, open_ended = ?, target_rounds = ?, auto_start_focus = ?, auto_start_breaks = ? WHERE id = ? AND is_classic = 0"
+        let sql =
+            "UPDATE presets SET name = ?, normalized_name = ?, focus_seconds = ?, short_break_seconds = ?, long_break_seconds = ?, long_break_every = ?, open_ended = ?, target_rounds = ?, auto_start_focus = ?, auto_start_breaks = ? WHERE id = ? AND is_classic = 0"
         guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
             throw PresetStoreError.database
         }
@@ -198,9 +274,11 @@ public final class PresetStore: @unchecked Sendable {
         do {
             let classic = Preset.classic
             try execute(
-                "INSERT OR IGNORE INTO presets VALUES ('\(classic.id.uuidString.lowercased())', 'Classic', 'classic', 1500, 300, 900, 4, 0, 4, 0, 1, 1)")
+                "INSERT OR IGNORE INTO presets VALUES ('\(classic.id.uuidString.lowercased())', 'Classic', 'classic', 1500, 300, 900, 4, 0, 4, 0, 1, 1, NULL)"
+            )
             try execute(
-                "INSERT OR IGNORE INTO app_state (singleton, default_preset_id) VALUES (1, '\(classic.id.uuidString.lowercased())')")
+                "INSERT OR IGNORE INTO app_state (singleton, default_preset_id, next_start_sequence) VALUES (1, '\(classic.id.uuidString.lowercased())', 0)"
+            )
             try execute("COMMIT")
         } catch {
             try? execute("ROLLBACK")
@@ -231,16 +309,18 @@ public final class PresetStore: @unchecked Sendable {
                     ? nil : Int(sqlite3_column_int(statement, 7)),
                 autoStartFocus: sqlite3_column_int(statement, 8) != 0,
                 autoStartBreaks: sqlite3_column_int(statement, 9) != 0)
-            results.append(Preset(
-                id: id, name: String(cString: nameValue), configuration: configuration,
-                isClassic: sqlite3_column_int(statement, 10) != 0))
+            results.append(
+                Preset(
+                    id: id, name: String(cString: nameValue), configuration: configuration,
+                    isClassic: sqlite3_column_int(statement, 10) != 0))
         }
         return results
     }
 
     private func preset(id: UUID) throws -> Preset? {
         let presets = try query(
-            "SELECT id, name, focus_seconds, short_break_seconds, long_break_seconds, long_break_every, open_ended, target_rounds, auto_start_focus, auto_start_breaks, is_classic FROM presets WHERE id = '\(id.uuidString.lowercased())'")
+            "SELECT id, name, focus_seconds, short_break_seconds, long_break_seconds, long_break_every, open_ended, target_rounds, auto_start_focus, auto_start_breaks, is_classic FROM presets WHERE id = '\(id.uuidString.lowercased())'"
+        )
         return presets.first
     }
 
@@ -254,6 +334,13 @@ public final class PresetStore: @unchecked Sendable {
         guard let database, sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
             throw PresetStoreError.database
         }
+    }
+
+    private static func isOwnerOnly(_ url: URL, mode: mode_t) -> Bool {
+        var metadata = stat()
+        return stat(url.path, &metadata) == 0
+            && metadata.st_uid == getuid()
+            && metadata.st_mode & 0o777 == mode
     }
 }
 
@@ -1470,13 +1557,19 @@ public actor PomoAgentCore {
     private let agentInstanceID: UUID
     private let productVersion: String
     private let clock: AgentClock
+    private let presetStore: PresetStore?
     private var revision: UInt64 = 0
     private var activeSession: ActiveSession?
     private var completedMutations: [UUID: CachedMutation] = [:]
 
-    public init(productVersion: String, clock: AgentClock = .system) {
+    public init(
+        productVersion: String,
+        clock: AgentClock = .system,
+        presetStore: PresetStore? = nil
+    ) {
         self.productVersion = productVersion
         self.clock = clock
+        self.presetStore = presetStore
         agentInstanceID = UUID()
     }
 
@@ -1530,7 +1623,7 @@ public actor PomoAgentCore {
         issuedAt: String,
         agentInstanceID: UUID,
         replace: Bool,
-        configuration: SessionConfiguration? = nil
+        configuration requestedConfiguration: SessionConfiguration? = nil
     ) throws -> AgentSnapshot {
         if let cached = try cachedMutation(
             requestID: requestID, issuedAt: issuedAt, agentInstanceID: agentInstanceID)
@@ -1538,7 +1631,16 @@ public actor PomoAgentCore {
             return cached
         }
         guard activeSession == nil || replace else { throw AgentCommandError.sessionAlreadyActive }
-        let configuration = configuration ?? .classic
+        let configuration: SessionConfiguration
+        if let requestedConfiguration {
+            configuration = requestedConfiguration
+        } else if let presetStore {
+            let preset = try presetStore.defaultPreset()
+            try presetStore.recordAcceptedStart(for: preset.id)
+            configuration = preset.configuration
+        } else {
+            configuration = .classic
+        }
         activeSession = ActiveSession(
             id: UUID(), phaseID: UUID(), configuration: configuration, phaseType: .focus,
             state: .running, completedRounds: 0,

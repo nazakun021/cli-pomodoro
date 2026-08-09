@@ -51,6 +51,47 @@ final class ClassicSessionTests: XCTestCase {
         XCTAssertEqual(snapshot.remainingSeconds, 60)
     }
 
+    func testStartResolvesDefaultPresetConfigurationBeforeLaterPresetEdit() async throws {
+        let databaseURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-agent-presets-\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: databaseURL) }
+        let store = try PresetStore(databaseURL: databaseURL)
+        let initialConfiguration = try SessionConfiguration(
+            focusSeconds: 1_200,
+            shortBreakSeconds: 240,
+            longBreakSeconds: 600,
+            longBreakEvery: 3,
+            openEnded: false,
+            targetRounds: 3,
+            autoStartFocus: false,
+            autoStartBreaks: true)
+        let preset = try store.create(name: "Writing", configuration: initialConfiguration)
+        try store.selectDefault(id: preset.id)
+        let agent = PomoAgentCore(productVersion: "0.1.0", presetStore: store)
+
+        let started = try await agent.startClassic()
+        try store.update(id: preset.id, name: "Writing", configuration: .classic)
+        let observed = await agent.snapshot()
+
+        XCTAssertEqual(started.configuration, initialConfiguration)
+        XCTAssertEqual(observed.configuration, initialConfiguration)
+    }
+
+    func testStartingDefaultPresetRecordsItsAcceptedStart() async throws {
+        let databaseURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-agent-recents-\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: databaseURL) }
+        let store = try PresetStore(databaseURL: databaseURL)
+        let preset = try store.create(name: "Writing", configuration: .classic)
+        try store.selectDefault(id: preset.id)
+        let agent = PomoAgentCore(productVersion: "0.1.0", presetStore: store)
+
+        _ = try await agent.startClassic()
+        try store.selectDefault(id: Preset.classicID)
+
+        XCTAssertEqual(try store.recentPresets(), [preset])
+    }
+
     func testFiniteSessionEndsAfterItsFinalFocus() async throws {
         let clock = TestClock()
         let configuration = try SessionConfiguration(

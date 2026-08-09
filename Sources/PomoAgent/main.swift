@@ -7,7 +7,16 @@ struct PomoAgent {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
 
-        let agent = PomoAgentCore(productVersion: "0.1.0")
+        guard
+            let applicationSupportDirectory = FileManager.default.urls(
+                for: .applicationSupportDirectory, in: .userDomainMask
+            ).first,
+            let presetStore = try? PresetStore.applicationSupportStore(
+                in: applicationSupportDirectory)
+        else {
+            return
+        }
+        let agent = PomoAgentCore(productVersion: "0.1.0", presetStore: presetStore)
         guard let socketPath = try? RuntimeEndpoint.prepare(),
             let server = try? LocalAgentServer(path: socketPath, agent: agent)
         else {

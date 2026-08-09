@@ -1,5 +1,6 @@
 import Foundation
 import PomoCore
+import SQLite3
 import XCTest
 
 final class PresetRepositoryTests: XCTestCase {
@@ -31,7 +32,8 @@ final class PresetRepositoryTests: XCTestCase {
         let created = try store.create(name: "Deep Work", configuration: .classic)
 
         XCTAssertThrowsError(
-            try store.create(name: "deep work", configuration: .classic)) {
+            try store.create(name: "deep work", configuration: .classic)
+        ) {
             XCTAssertEqual($0 as? PresetStoreError, .duplicateName)
         }
         try store.selectDefault(id: created.id)
@@ -60,13 +62,19 @@ final class PresetRepositoryTests: XCTestCase {
         try store.update(id: original.id, name: "Writing", configuration: editedConfiguration)
 
         XCTAssertEqual(copy.configuration, SessionConfiguration.classic)
-        XCTAssertEqual(try store.presets(), [
-            .classic,
-            copy,
-            Preset(id: original.id, name: "Writing", configuration: editedConfiguration, isClassic: false),
-        ])
-        XCTAssertThrowsError(try store.update(
-            id: Preset.classicID, name: "Changed", configuration: editedConfiguration)) {
+        XCTAssertEqual(
+            try store.presets(),
+            [
+                .classic,
+                copy,
+                Preset(
+                    id: original.id, name: "Writing", configuration: editedConfiguration,
+                    isClassic: false),
+            ])
+        XCTAssertThrowsError(
+            try store.update(
+                id: Preset.classicID, name: "Changed", configuration: editedConfiguration)
+        ) {
             XCTAssertEqual($0 as? PresetStoreError, .classicIsProtected)
         }
         XCTAssertThrowsError(try store.delete(id: Preset.classicID)) {
@@ -74,8 +82,70 @@ final class PresetRepositoryTests: XCTestCase {
         }
     }
 
+    func testDatabaseRejectsDirectClassicMutation() throws {
+        let databaseURL = temporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: databaseURL) }
+        _ = try PresetStore(databaseURL: databaseURL)
+        var database: OpaquePointer?
+        XCTAssertEqual(
+            sqlite3_open_v2(databaseURL.path, &database, SQLITE_OPEN_READWRITE, nil), SQLITE_OK)
+        defer { sqlite3_close(database) }
+
+        XCTAssertNotEqual(
+            sqlite3_exec(
+                database,
+                "UPDATE presets SET name = 'Changed' WHERE id = '00000000-0000-0000-0000-000000000001'",
+                nil,
+                nil,
+                nil),
+            SQLITE_OK)
+        XCTAssertNotEqual(
+            sqlite3_exec(
+                database,
+                "DELETE FROM presets WHERE id = '00000000-0000-0000-0000-000000000001'",
+                nil,
+                nil,
+                nil),
+            SQLITE_OK)
+    }
+
+    func testApplicationSupportStoreUsesOwnerOnlyDirectoryAndDatabase() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-support-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = try PresetStore.applicationSupportStore(in: root)
+
+        XCTAssertEqual(try store.defaultPreset(), .classic)
+        XCTAssertEqual(fileMode(root.appendingPathComponent("Pomo")), 0o700)
+        XCTAssertEqual(fileMode(root.appendingPathComponent("Pomo/pomo.sqlite")), 0o600)
+    }
+
+    func testAcceptedStartsOrderRecentsAndDeletionRemovesTheirMetadata() throws {
+        let databaseURL = temporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: databaseURL) }
+        let store = try PresetStore(databaseURL: databaseURL)
+        let first = try store.create(name: "First", configuration: .classic)
+        let second = try store.create(name: "Second", configuration: .classic)
+        let third = try store.create(name: "Third", configuration: .classic)
+
+        try store.recordAcceptedStart(for: first.id)
+        try store.recordAcceptedStart(for: second.id)
+        try store.recordAcceptedStart(for: first.id)
+        try store.recordAcceptedStart(for: third.id)
+        try store.delete(id: first.id)
+
+        XCTAssertEqual(try store.recentPresets(), [third, second])
+    }
+
     private func temporaryDatabaseURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("pomo-presets-\(UUID().uuidString).sqlite")
+    }
+
+    private func fileMode(_ url: URL) -> mode_t {
+        var metadata = stat()
+        XCTAssertEqual(stat(url.path, &metadata), 0)
+        return metadata.st_mode & 0o777
     }
 }
