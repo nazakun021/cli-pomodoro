@@ -62,6 +62,62 @@ public final class AlertPreferencesStore: @unchecked Sendable {
     }
 }
 
+public struct AgentLifecycleMarker: Codable, Equatable, Sendable {
+    public let priorAgentInstanceID: UUID
+    public let hadActiveSession: Bool
+    public let exitedCleanly: Bool
+
+    public init(
+        priorAgentInstanceID: UUID,
+        hadActiveSession: Bool,
+        exitedCleanly: Bool
+    ) {
+        self.priorAgentInstanceID = priorAgentInstanceID
+        self.hadActiveSession = hadActiveSession
+        self.exitedCleanly = exitedCleanly
+    }
+}
+
+public final class AgentLifecycleStore: @unchecked Sendable {
+    private let defaults: UserDefaults
+    private let markerKey = "pomo.agent-lifecycle-marker"
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    public var marker: AgentLifecycleMarker? {
+        guard let data = defaults.data(forKey: markerKey) else { return nil }
+        return try? JSONDecoder().decode(AgentLifecycleMarker.self, from: data)
+    }
+
+    public func markRunning(instanceID: UUID, hasActiveSession: Bool) {
+        setMarker(
+            AgentLifecycleMarker(
+                priorAgentInstanceID: instanceID,
+                hadActiveSession: hasActiveSession,
+                exitedCleanly: false))
+    }
+
+    public func markCleanExit(instanceID: UUID, hasActiveSession: Bool) {
+        setMarker(
+            AgentLifecycleMarker(
+                priorAgentInstanceID: instanceID,
+                hadActiveSession: hasActiveSession,
+                exitedCleanly: true))
+    }
+
+    public func consumeUnexpectedTermination() -> AgentLifecycleMarker? {
+        guard let marker, !marker.exitedCleanly else { return nil }
+        defaults.removeObject(forKey: markerKey)
+        return marker
+    }
+
+    private func setMarker(_ marker: AgentLifecycleMarker) {
+        defaults.set(try? JSONEncoder().encode(marker), forKey: markerKey)
+    }
+}
+
 public struct FocusContribution: Codable, Equatable, Sendable {
     public let phaseID: UUID
     public let date: String

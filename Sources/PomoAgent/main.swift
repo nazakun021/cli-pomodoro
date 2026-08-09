@@ -4,7 +4,7 @@ import UserNotifications
 
 struct PomoAgent {
     @MainActor
-    static func main() {
+    static func main() async {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
 
@@ -26,25 +26,37 @@ struct PomoAgent {
         }
         let agent = PomoAgentCore(
             productVersion: "0.1.0", presetStore: presetStore, summaryStore: summaryStore)
+        let lifecycleStore = AgentLifecycleStore()
+        let snapshot = await agent.snapshot()
+        lifecycleStore.markRunning(
+            instanceID: snapshot.agentInstanceID ?? UUID(),
+            hasActiveSession: snapshot.agentState == .session)
         guard let socketPath = try? RuntimeEndpoint.prepare(),
             let server = try? LocalAgentServer(path: socketPath, agent: agent)
         else {
             return
         }
-        let statusItem = IdleStatusItem(agent: agent, server: server, presetStore: presetStore)
+        let priorInterruption = lifecycleStore.consumeUnexpectedTermination()
+        let statusItem = IdleStatusItem(
+            agent: agent, server: server, presetStore: presetStore, lifecycleStore: lifecycleStore,
+            priorInterruption: priorInterruption)
         withExtendedLifetime(statusItem) {
             application.run()
         }
     }
 }
 
-PomoAgent.main()
+Task { @MainActor in
+    await PomoAgent.main()
+}
 
 @MainActor
 private final class IdleStatusItem: NSObject {
     private let agent: PomoAgentCore
     private let server: LocalAgentServer
     private let presetStore: PresetStore
+    private let lifecycleStore: AgentLifecycleStore
+    private let priorInterruption: AgentLifecycleMarker?
     private let alertPreferences: AlertPreferencesStore
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var refreshTimer: Timer?
@@ -54,14 +66,24 @@ private final class IdleStatusItem: NSObject {
     private var previousSnapshot: AgentSnapshot?
     private var authorizationRequested = false
     private var refreshGeneration = 0
+    private var isQuitting = false
 
-    init(agent: PomoAgentCore, server: LocalAgentServer, presetStore: PresetStore) {
+    init(
+        agent: PomoAgentCore,
+        server: LocalAgentServer,
+        presetStore: PresetStore,
+        lifecycleStore: AgentLifecycleStore,
+        priorInterruption: AgentLifecycleMarker?
+    ) {
         self.agent = agent
         self.server = server
         self.presetStore = presetStore
+        self.lifecycleStore = lifecycleStore
+        self.priorInterruption = priorInterruption
         alertPreferences = AlertPreferencesStore()
         super.init()
         refresh()
+        showInterruptionIfNeeded()
         showWelcomeIfNeeded()
         sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
@@ -85,7 +107,11 @@ private final class IdleStatusItem: NSObject {
         Task { [weak self] in
             guard let self else { return }
             let snapshot = await agent.advanceIfDue()
-            guard generation == refreshGeneration else { return }
+            guard !isQuitting, generation == refreshGeneration else { return }
+            if let instanceID = snapshot.agentInstanceID {
+                lifecycleStore.markRunning(
+                    instanceID: instanceID, hasActiveSession: snapshot.agentState == .session)
+            }
             if snapshot.agentState == .session {
                 requestNotificationAuthorizationIfNeeded()
             }
@@ -152,7 +178,9 @@ private final class IdleStatusItem: NSObject {
     @objc private func startClassic() {
         requestNotificationAuthorizationIfNeeded()
         Task { [agent] in
-            _ = try? await agent.startClassic()
+            if let snapshot = try? await agent.startClassic() {
+                markLifecycle(for: snapshot)
+            }
             refresh()
         }
     }
@@ -185,7 +213,9 @@ private final class IdleStatusItem: NSObject {
         else { return }
         requestNotificationAuthorizationIfNeeded()
         Task { [agent] in
-            _ = try? await agent.start(presetID: id)
+            if let snapshot = try? await agent.start(presetID: id) {
+                markLifecycle(for: snapshot)
+            }
             refresh()
         }
     }
@@ -200,6 +230,12 @@ private final class IdleStatusItem: NSObject {
         }
         guard let button = item.button else { return }
         customSessionPopover?.show(relativeTo: button)
+    }
+
+    private func markLifecycle(for snapshot: AgentSnapshot) {
+        guard let instanceID = snapshot.agentInstanceID else { return }
+        lifecycleStore.markRunning(
+            instanceID: instanceID, hasActiveSession: snapshot.agentState == .session)
     }
 
     @objc private func confirmStop() {
@@ -327,12 +363,29 @@ private final class IdleStatusItem: NSObject {
     }
 
     @objc private func quit() {
+        isQuitting = true
+        refreshGeneration += 1
         refreshTimer?.invalidate()
         if let sleepObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(sleepObserver)
         }
-        server.stop()
-        NSApp.terminate(nil)
+        Task { [agent, server, lifecycleStore] in
+            let snapshot = await agent.snapshot()
+            lifecycleStore.markCleanExit(
+                instanceID: snapshot.agentInstanceID ?? UUID(),
+                hasActiveSession: snapshot.agentState == .session)
+            server.stop()
+            NSApp.terminate(nil)
+        }
+    }
+
+    private func showInterruptionIfNeeded() {
+        guard let priorInterruption, priorInterruption.hadActiveSession else { return }
+        let alert = NSAlert()
+        alert.messageText = "Session interrupted"
+        alert.informativeText = "The previous Session was lost when Pomo stopped unexpectedly."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     private func formatRemaining(_ seconds: Int) -> String {

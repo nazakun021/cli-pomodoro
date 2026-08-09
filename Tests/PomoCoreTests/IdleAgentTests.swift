@@ -2,6 +2,43 @@ import PomoCore
 import XCTest
 
 final class IdleAgentTests: XCTestCase {
+    func testLifecycleStoreConsumesUnexpectedTerminationOnce() {
+        let suiteName = "pomo-lifecycle-test-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = AgentLifecycleStore(defaults: defaults)
+        let instanceID = UUID()
+
+        store.markRunning(instanceID: instanceID, hasActiveSession: true)
+
+        XCTAssertEqual(
+            store.consumeUnexpectedTermination(),
+            AgentLifecycleMarker(
+                priorAgentInstanceID: instanceID,
+                hadActiveSession: true,
+                exitedCleanly: false))
+        XCTAssertNil(store.consumeUnexpectedTermination())
+    }
+
+    func testLifecycleStoreRecordsCleanExitWithoutInterruptionNotice() {
+        let suiteName = "pomo-lifecycle-test-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = AgentLifecycleStore(defaults: defaults)
+        let instanceID = UUID()
+
+        store.markRunning(instanceID: instanceID, hasActiveSession: true)
+        store.markCleanExit(instanceID: instanceID, hasActiveSession: false)
+
+        XCTAssertNil(store.consumeUnexpectedTermination())
+        XCTAssertEqual(
+            store.marker,
+            AgentLifecycleMarker(
+                priorAgentInstanceID: instanceID,
+                hadActiveSession: false,
+                exitedCleanly: true))
+    }
+
     func testIdleAgentExposesSnapshotWithoutSessionData() async {
         let agent = PomoAgentCore(productVersion: "0.1.0")
 
