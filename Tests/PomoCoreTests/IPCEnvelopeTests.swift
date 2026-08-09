@@ -19,6 +19,20 @@ final class IPCEnvelopeTests: XCTestCase {
         XCTAssertNil(decoded.error)
     }
 
+    func testFollowTickEventUsesTheNextVisibleSequence() {
+        let snapshot = AgentSnapshot(
+            agentRunning: true,
+            agentInstanceID: UUID(),
+            agentState: .session,
+            revision: 4)
+
+        let event = FollowEvent.tick(sequence: 1, snapshot: snapshot)
+
+        XCTAssertEqual(event.sequence, 1)
+        XCTAssertEqual(event.kind, .tick)
+        XCTAssertEqual(event.snapshot?.revision, 4)
+    }
+
     func testStatusResponseEchoesRequestIDAndNegotiatedProtocol() async throws {
         let path = FileManager.default.temporaryDirectory
             .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path

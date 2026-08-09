@@ -22,3 +22,5 @@
 - `swift test` passed after the schema addition; touched-file diagnostics are clean.
 - `swift test --filter UnixSocketTests/testFollowReceivesInitialSnapshotEventAfterAcknowledgement` passed: a Follow request receives its normal acknowledgment and then the sequence-zero initial snapshot on the same socket.
 - `swift test` passed after the socket extension; touched Core and socket-test diagnostics are clean.
+- `swift test --filter IPCEnvelopeTests/testFollowTickEventUsesTheNextVisibleSequence` passed: tick events retain the current Agent state revision while advancing the caller-controlled visible sequence.
+- Full validation: `swift test` passed with 56 tests, 0 failures; touched-file diagnostics and `git diff --check` passed.

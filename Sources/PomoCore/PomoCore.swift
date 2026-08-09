@@ -982,6 +982,10 @@ public struct FollowEvent: Codable, Equatable, Sendable {
         FollowEvent(sequence: 0, kind: .initialSnapshot, snapshot: snapshot)
     }
 
+    public static func tick(sequence: UInt64, snapshot: AgentSnapshot) -> FollowEvent {
+        FollowEvent(sequence: sequence, kind: .tick, snapshot: snapshot)
+    }
+
     enum CodingKeys: String, CodingKey {
         case sequence
         case kind = "event_type"
