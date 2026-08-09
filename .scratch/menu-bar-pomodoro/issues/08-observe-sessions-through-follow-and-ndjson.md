@@ -26,3 +26,5 @@
 - Full validation: `swift test` passed with 56 tests, 0 failures; touched-file diagnostics and `git diff --check` passed.
 - `swift test --filter TimingTests/testFollowSnapshotsYieldsInitialAndStartedSession` passed: Agent-owned subscriptions yield the current snapshot immediately and a serialized Session snapshot after Start.
 - Full validation after the subscription foundation passed; touched Core and timing-test diagnostics are clean.
+- Follow sockets are now handled concurrently, remain subscribed after their initial snapshot, and relay later serialized Agent snapshots as ordered transition events without blocking the listener.
+- Full validation after the persistent transport foundation passed with 57 tests, 0 failures; Core diagnostics and `git diff --check` passed.

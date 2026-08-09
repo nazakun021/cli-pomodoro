@@ -1088,8 +1088,10 @@ public final class LocalAgentServer: @unchecked Sendable {
         while isRunning {
             let client = Darwin.accept(listener, nil, nil)
             guard client >= 0 else { continue }
-            handle(client: client)
-            Darwin.close(client)
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                self?.handle(client: client)
+                Darwin.close(client)
+            }
         }
     }
 
@@ -1212,7 +1214,19 @@ public final class LocalAgentServer: @unchecked Sendable {
             }
             _ = Self.writeJSON(response, to: client)
             if request.command.name == "follow" {
-                _ = Self.writeJSON(FollowEvent.initialSnapshot(await agent.snapshot()), to: client)
+                let stream = await agent.followSnapshots()
+                var iterator = stream.makeAsyncIterator()
+                guard let initialSnapshot = await iterator.next(),
+                    Self.writeJSON(FollowEvent.initialSnapshot(initialSnapshot), to: client)
+                else { return }
+                var sequence: UInt64 = 0
+                while let snapshot = await iterator.next() {
+                    sequence += 1
+                    guard Self.writeJSON(
+                        FollowEvent(sequence: sequence, kind: .transition, snapshot: snapshot),
+                        to: client)
+                    else { return }
+                }
             }
         }
         responseWritten.wait()
