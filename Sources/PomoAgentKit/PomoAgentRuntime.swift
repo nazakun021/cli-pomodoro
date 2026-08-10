@@ -145,6 +145,25 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
         self.alertPreferences = alertPreferences
         missedAlert = alertPreferences.hasMissedAlert
         super.init()
+        item.length = 64
+        item.isVisible = true
+        item.button?.title = "Pomo"
+        let initialMenu = NSMenu()
+        initialMenu.addItem(withTitle: "No Session", action: nil, keyEquivalent: "")
+        let startItem = initialMenu.addItem(
+            withTitle: "Start Classic", action: #selector(startClassic), keyEquivalent: "")
+        startItem.target = self
+        initialMenu.addItem(.separator())
+        let presetsItem = initialMenu.addItem(
+            withTitle: "Presets...", action: #selector(openPresets), keyEquivalent: ",")
+        presetsItem.target = self
+        let alertsItem = initialMenu.addItem(
+            withTitle: "Alerts...", action: #selector(openAlerts), keyEquivalent: "")
+        alertsItem.target = self
+        let quitItem = initialMenu.addItem(
+            withTitle: "Quit Pomo", action: #selector(quit), keyEquivalent: "q")
+        quitItem.target = self
+        item.menu = initialMenu
         refresh()
         showInterruptionIfNeeded()
         DispatchQueue.main.async { [weak self] in
@@ -231,7 +250,7 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
             menu.addItem(withTitle: "Next: \(nextPhase)", action: nil, keyEquivalent: "")
             addSummaryItem(to: menu, summary: summary)
         } else {
-            item.button?.title = ""
+            item.button?.title = "Pomo"
             item.button?.image = NSImage(
                 systemSymbolName: missedAlert ? "bell.badge" : "timer",
                 accessibilityDescription: missedAlert
