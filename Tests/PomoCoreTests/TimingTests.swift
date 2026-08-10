@@ -3,6 +3,27 @@ import PomoCore
 import XCTest
 
 final class TimingTests: XCTestCase {
+    func testCompletionAlertDecisionSkipsPendingAuthorization() {
+        XCTAssertEqual(
+            CompletionAlertDecision.resolve(
+                notificationsEnabled: true, authorization: .notDetermined),
+            .missed)
+    }
+
+    func testCompletionAlertDecisionDoesNotMarkDeniedAuthorizationAsMissed() {
+        XCTAssertEqual(
+            CompletionAlertDecision.resolve(
+                notificationsEnabled: true, authorization: .denied),
+            .unavailable)
+    }
+
+    func testCompletionAlertDecisionHonorsIndependentNotificationPreference() {
+        XCTAssertEqual(
+            CompletionAlertDecision.resolve(
+                notificationsEnabled: false, authorization: .authorized),
+            .unavailable)
+    }
+
     func testAlertPreferencesDefaultToEnabledAndPersistOnboardingDismissal() {
         let defaults = UserDefaults(suiteName: "pomo-alert-test-\(UUID().uuidString)")!
         let store = AlertPreferencesStore(defaults: defaults)
@@ -19,6 +40,17 @@ final class TimingTests: XCTestCase {
         XCTAssertEqual(reloaded.preferences.soundEnabled, true)
         XCTAssertTrue(reloaded.hasCompletedOnboarding)
         XCTAssertTrue(reloaded.hasMissedAlert)
+    }
+
+    func testNotificationExplanationIsShownOnceAndPersists() {
+        let defaults = UserDefaults(suiteName: "pomo-alert-explanation-test-\(UUID().uuidString)")!
+        let store = AlertPreferencesStore(defaults: defaults)
+
+        XCTAssertFalse(store.hasShownNotificationExplanation)
+        store.hasShownNotificationExplanation = true
+
+        let reloaded = AlertPreferencesStore(defaults: defaults)
+        XCTAssertTrue(reloaded.hasShownNotificationExplanation)
     }
 
     func testFollowSnapshotsYieldsInitialAndStartedSession() async throws {

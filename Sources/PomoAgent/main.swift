@@ -38,16 +38,17 @@ struct PomoAgent {
             return
         }
         let priorInterruption = lifecycleStore.consumeUnexpectedTermination()
-        let notificationDelegate = PomoNotificationDelegate(agent: agent)
+        let statusItem = IdleStatusItem(
+            agent: agent, server: server, presetStore: presetStore, lifecycleStore: lifecycleStore,
+            priorInterruption: priorInterruption)
+        let notificationDelegate = PomoNotificationDelegate(
+            agent: agent, openStatus: { statusItem.showStatus() })
         UNUserNotificationCenter.current().delegate = notificationDelegate
         let startNext = UNNotificationAction(
             identifier: "POMO_START_NEXT", title: "Start Next Phase", options: [])
         let phaseCategory = UNNotificationCategory(
             identifier: "POMO_PHASE", actions: [startNext], intentIdentifiers: [])
         UNUserNotificationCenter.current().setNotificationCategories([phaseCategory])
-        let statusItem = IdleStatusItem(
-            agent: agent, server: server, presetStore: presetStore, lifecycleStore: lifecycleStore,
-            priorInterruption: priorInterruption)
         withExtendedLifetime(statusItem) {
             withExtendedLifetime(notificationDelegate) {
                 application.run()
@@ -61,7 +62,7 @@ Task { @MainActor in
 }
 
 @MainActor
-private final class IdleStatusItem: NSObject {
+private final class IdleStatusItem: NSObject, NSMenuDelegate {
     private let agent: PomoAgentCore
     private let server: LocalAgentServer
     private let presetStore: PresetStore
@@ -73,6 +74,7 @@ private final class IdleStatusItem: NSObject {
     private var sleepObserver: NSObjectProtocol?
     private var settingsWindow: PresetSettingsWindowController?
     private var customSessionPopover: CustomSessionPopoverController?
+    private var welcomePopover: WelcomePopoverController?
     private var previousSnapshot: AgentSnapshot?
     private var authorizationRequested = false
     private var refreshGeneration = 0
@@ -97,7 +99,9 @@ private final class IdleStatusItem: NSObject {
         super.init()
         refresh()
         showInterruptionIfNeeded()
-        showWelcomeIfNeeded()
+        DispatchQueue.main.async { [weak self] in
+            self?.showWelcomeIfNeeded()
+        }
         sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -147,8 +151,12 @@ private final class IdleStatusItem: NSObject {
             }
             let nextPhase = snapshot.phaseType == .focus ? "Short Break" : "Focus"
             item.button?.image = NSImage(
-                systemSymbolName: snapshot.phaseType == .focus ? "target" : "cup.and.saucer",
-                accessibilityDescription: "Pomo \(phase) \(state)")
+                systemSymbolName: missedAlert
+                    ? "bell.badge"
+                    : (snapshot.phaseType == .focus ? "target" : "cup.and.saucer"),
+                accessibilityDescription: missedAlert
+                    ? "Pomo has a missed completion alert"
+                    : "Pomo \(phase) \(state)")
             item.button?.title = formatRemaining(snapshot.remainingSeconds ?? 0)
             menu.addItem(withTitle: "\(phase) - \(state)", action: nil, keyEquivalent: "")
             menu.addItem(withTitle: rounds, action: nil, keyEquivalent: "")
@@ -174,7 +182,10 @@ private final class IdleStatusItem: NSObject {
         } else {
             item.button?.title = ""
             item.button?.image = NSImage(
-                systemSymbolName: "timer", accessibilityDescription: "Pomo Idle")
+                systemSymbolName: missedAlert ? "bell.badge" : "timer",
+                accessibilityDescription: missedAlert
+                    ? "Pomo has a missed completion alert"
+                    : "Pomo Idle")
             menu.addItem(withTitle: "No Session", action: nil, keyEquivalent: "")
             addQuickStartItems(to: menu)
         }
@@ -202,10 +213,23 @@ private final class IdleStatusItem: NSObject {
         }
         menu.addItem(withTitle: "Quit Pomo", action: #selector(quit), keyEquivalent: "q")
         menu.items.last?.target = self
+        menu.delegate = self
         item.menu = menu
     }
 
+    fileprivate func showStatus() {
+        item.button?.performClick(nil)
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        guard missedAlert else { return }
+        missedAlertGeneration += 1
+        missedAlert = false
+        alertPreferences.hasMissedAlert = false
+    }
+
     @objc private func startClassic() {
+        explainNotificationsIfNeeded()
         requestNotificationAuthorizationIfNeeded()
         Task { [agent] in
             if let snapshot = try? await agent.startClassic() {
@@ -241,6 +265,7 @@ private final class IdleStatusItem: NSObject {
     @objc private func startPreset(_ sender: NSMenuItem) {
         guard let idValue = sender.representedObject as? String, let id = UUID(uuidString: idValue)
         else { return }
+        explainNotificationsIfNeeded()
         requestNotificationAuthorizationIfNeeded()
         Task { [agent] in
             if let snapshot = try? await agent.start(presetID: id) {
@@ -251,12 +276,15 @@ private final class IdleStatusItem: NSObject {
     }
 
     @objc private func openCustomSession() {
-        requestNotificationAuthorizationIfNeeded()
         if customSessionPopover == nil {
-            customSessionPopover = CustomSessionPopoverController(agent: agent, store: presetStore)
-            {
-                self.refresh()
-            }
+            customSessionPopover = CustomSessionPopoverController(
+                agent: agent,
+                store: presetStore,
+                onStartRequested: {
+                    self.explainNotificationsIfNeeded()
+                    self.requestNotificationAuthorizationIfNeeded()
+                },
+                onStarted: { self.refresh() })
         }
         guard let button = item.button else { return }
         customSessionPopover?.show(relativeTo: button)
@@ -303,6 +331,7 @@ private final class IdleStatusItem: NSObject {
     }
 
     private func requestNotificationAuthorizationIfNeeded() {
+        guard alertPreferences.preferences.notificationsEnabled else { return }
         guard !authorizationRequested else { return }
         authorizationRequested = true
         UNUserNotificationCenter.current().requestAuthorization(
@@ -311,23 +340,53 @@ private final class IdleStatusItem: NSObject {
             }
     }
 
+    private func explainNotificationsIfNeeded() {
+        guard !alertPreferences.hasShownNotificationExplanation else { return }
+        let alert = NSAlert()
+        alert.messageText = "Completion Alerts"
+        alert.informativeText =
+            "Pomo can notify you when a Phase completes. You can change notifications and sound in Alerts."
+        alert.addButton(withTitle: "Continue")
+        alert.runModal()
+        alertPreferences.hasShownNotificationExplanation = true
+    }
+
     private func deliverCompletionCue(from previous: AgentSnapshot?, to current: AgentSnapshot) {
         guard let previous,
             previous.agentState == .session,
-            previous.phaseType == .focus
+            previous.phaseType == .focus,
+            previous.phaseID != current.phaseID
         else { return }
         let preferences = alertPreferences.preferences
-        if preferences.soundEnabled { NSSound.beep() }
+        if preferences.soundEnabled { playCompletionChime() }
         guard preferences.notificationsEnabled else { return }
         let generation = missedAlertGeneration
         UNUserNotificationCenter.current().getNotificationSettings { settings in
-            guard settings.authorizationStatus == .authorized else {
+            let authorization: AlertAuthorization
+            switch settings.authorizationStatus {
+            case .authorized: authorization = .authorized
+            case .provisional: authorization = .provisional
+            case .ephemeral: authorization = .ephemeral
+            case .denied: authorization = .denied
+            case .notDetermined: authorization = .notDetermined
+            @unknown default: authorization = .denied
+            }
+            switch CompletionAlertDecision.resolve(
+                notificationsEnabled: preferences.notificationsEnabled,
+                authorization: authorization)
+            {
+            case .missed:
                 Task { @MainActor [weak self] in
-                    self?.missedAlert = true
-                    self?.alertPreferences.hasMissedAlert = true
-                    self?.refresh()
+                    guard let self, generation == self.missedAlertGeneration else { return }
+                    self.missedAlert = true
+                    self.alertPreferences.hasMissedAlert = true
+                    self.refresh()
                 }
                 return
+            case .unavailable:
+                return
+            case .notify:
+                break
             }
             let content = UNMutableNotificationContent()
             content.title = "Pomo"
@@ -361,6 +420,10 @@ private final class IdleStatusItem: NSObject {
         }
     }
 
+    private func playCompletionChime() {
+        NSSound(data: CompletionChime.data)?.play()
+    }
+
     @objc private func dismissMissedAlert() {
         missedAlertGeneration += 1
         missedAlert = false
@@ -379,30 +442,48 @@ private final class IdleStatusItem: NSObject {
 
     private func showWelcomeIfNeeded() {
         guard !alertPreferences.hasCompletedOnboarding else { return }
-        let alert = NSAlert()
-        alert.messageText = "Welcome to Pomo"
-        alert.informativeText =
-            "Start a Classic Focus Session from the menu bar. You can change alerts in Settings."
-        alert.addButton(withTitle: "Start Classic")
-        alert.addButton(withTitle: "Open Alerts")
-        alert.addButton(withTitle: "Later")
-        alert.alertStyle = .informational
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:
-            startClassic()
-        case .alertSecondButtonReturn:
-            openAlerts()
-        default:
-            break
-        }
-        alertPreferences.hasCompletedOnboarding = true
+        guard let button = item.button else { return }
+        welcomePopover = WelcomePopoverController(
+            onStart: { [weak self] launchAtLogin in
+                guard let self else { return }
+                self.alertPreferences.hasCompletedOnboarding = true
+                self.registerLaunchAtLoginIfRequested(launchAtLogin)
+                self.startClassic()
+            },
+            onAlerts: { [weak self] launchAtLogin in
+                guard let self else { return }
+                self.alertPreferences.hasCompletedOnboarding = true
+                self.registerLaunchAtLoginIfRequested(launchAtLogin)
+                self.openAlerts()
+            },
+            onLater: { [weak self] launchAtLogin in
+                guard let self else { return }
+                self.alertPreferences.hasCompletedOnboarding = true
+                self.registerLaunchAtLoginIfRequested(launchAtLogin)
+            })
+        welcomePopover?.show(relativeTo: button)
     }
 
     @objc private func openAlerts() {
+        UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in
+            Task { @MainActor [weak self] in
+                self?.presentAlerts(for: settings.authorizationStatus)
+            }
+        }
+    }
+
+    private func presentAlerts(for authorizationStatus: UNAuthorizationStatus) {
         let preferences = alertPreferences.preferences
         let alert = NSAlert()
         alert.messageText = "Alerts"
-        alert.informativeText = "Choose which completion cues Pomo may use."
+        let status: String
+        switch authorizationStatus {
+        case .authorized, .provisional, .ephemeral: status = "Notifications are allowed."
+        case .denied: status = "Notifications are denied. Open System Settings to allow them."
+        case .notDetermined: status = "Notification permission has not been decided yet."
+        @unknown default: status = "Notification permission status is unavailable."
+        }
+        alert.informativeText = "Choose which completion cues Pomo may use. \(status)"
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Open System Settings")
@@ -426,6 +507,19 @@ private final class IdleStatusItem: NSObject {
         alertPreferences.preferences = AlertPreferences(
             notificationsEnabled: notifications.state == .on,
             soundEnabled: sound.state == .on)
+    }
+
+    private func registerLaunchAtLoginIfRequested(_ requested: Bool) {
+        guard requested else { return }
+        do {
+            try SMAppService.mainApp.register()
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Launch at Login Unavailable"
+            alert.informativeText = error.localizedDescription
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
     }
 
     @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
@@ -490,14 +584,54 @@ private final class IdleStatusItem: NSObject {
     }
 }
 
+private enum CompletionChime {
+    static let data: Data = {
+        let sampleRate = 44_100
+        let sampleCount = Int(Double(sampleRate) * 0.24)
+        var samples = [Int16]()
+        samples.reserveCapacity(sampleCount)
+        for index in 0..<sampleCount {
+            let time = Double(index) / Double(sampleRate)
+            let envelope = max(0, 1 - time / 0.24)
+            let firstTone = sin(2 * Double.pi * 880 * time) * 0.25
+            let secondTone = sin(2 * Double.pi * 1_320 * time) * 0.16
+            samples.append(Int16((firstTone + secondTone) * envelope * Double(Int16.max)))
+        }
+        var bytes = Data()
+        bytes.append(contentsOf: Array("RIFF".utf8))
+        appendLittleEndian(UInt32(36 + samples.count * 2), to: &bytes)
+        bytes.append(contentsOf: Array("WAVEfmt ".utf8))
+        appendLittleEndian(UInt32(16), to: &bytes)
+        appendLittleEndian(UInt16(1), to: &bytes)
+        appendLittleEndian(UInt16(1), to: &bytes)
+        appendLittleEndian(UInt32(sampleRate), to: &bytes)
+        appendLittleEndian(UInt32(sampleRate * 2), to: &bytes)
+        appendLittleEndian(UInt16(2), to: &bytes)
+        appendLittleEndian(UInt16(16), to: &bytes)
+        bytes.append(contentsOf: Array("data".utf8))
+        appendLittleEndian(UInt32(samples.count * 2), to: &bytes)
+        for sample in samples {
+            appendLittleEndian(UInt16(bitPattern: sample), to: &bytes)
+        }
+        return bytes
+    }()
+
+    private static func appendLittleEndian<T: FixedWidthInteger>(_ value: T, to data: inout Data) {
+        var littleEndian = value.littleEndian
+        withUnsafeBytes(of: &littleEndian) { data.append(contentsOf: $0) }
+    }
+}
+
 @MainActor
 private final class PomoNotificationDelegate: NSObject,
     @preconcurrency UNUserNotificationCenterDelegate
 {
     private let agent: PomoAgentCore
+    private let openStatus: @MainActor () -> Void
 
-    init(agent: PomoAgentCore) {
+    init(agent: PomoAgentCore, openStatus: @escaping @MainActor () -> Void) {
         self.agent = agent
+        self.openStatus = openStatus
     }
 
     func userNotificationCenter(
@@ -518,6 +652,7 @@ private final class PomoNotificationDelegate: NSObject,
                 completionHandler()
             }
         } else {
+            openStatus()
             NSApp.activate(ignoringOtherApps: true)
             completionHandler()
         }

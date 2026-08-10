@@ -6,11 +6,20 @@ import SwiftUI
 final class CustomSessionPopoverController {
     private let popover = NSPopover()
 
-    init(agent: PomoAgentCore, store: PresetStore, onStarted: @escaping @MainActor () -> Void) {
+    init(
+        agent: PomoAgentCore,
+        store: PresetStore,
+        onStartRequested: @escaping @MainActor () -> Void,
+        onStarted: @escaping @MainActor () -> Void
+    ) {
         popover.behavior = .transient
         popover.contentSize = NSSize(width: 360, height: 540)
         popover.contentViewController = NSHostingController(
-            rootView: CustomSessionView(agent: agent, store: store, onStarted: onStarted))
+            rootView: CustomSessionView(
+                agent: agent,
+                store: store,
+                onStartRequested: onStartRequested,
+                onStarted: onStarted))
     }
 
     func show(relativeTo button: NSStatusBarButton) {
@@ -22,6 +31,7 @@ final class CustomSessionPopoverController {
 private final class CustomSessionModel: ObservableObject {
     private let agent: PomoAgentCore
     private let store: PresetStore
+    private let onStartRequested: @MainActor () -> Void
     private let onStarted: @MainActor () -> Void
 
     @Published var presets: [Preset] = []
@@ -37,9 +47,15 @@ private final class CustomSessionModel: ObservableObject {
     @Published var autoStartBreaks = true
     @Published var message = ""
 
-    init(agent: PomoAgentCore, store: PresetStore, onStarted: @escaping @MainActor () -> Void) {
+    init(
+        agent: PomoAgentCore,
+        store: PresetStore,
+        onStartRequested: @escaping @MainActor () -> Void,
+        onStarted: @escaping @MainActor () -> Void
+    ) {
         self.agent = agent
         self.store = store
+        self.onStartRequested = onStartRequested
         self.onStarted = onStarted
         reloadPresets()
     }
@@ -71,6 +87,7 @@ private final class CustomSessionModel: ObservableObject {
     func startOnce() {
         do {
             let configuration = try configuration()
+            onStartRequested()
             Task {
                 do {
                     _ = try await agent.start(
@@ -108,9 +125,18 @@ private final class CustomSessionModel: ObservableObject {
 private struct CustomSessionView: View {
     @StateObject private var model: CustomSessionModel
 
-    init(agent: PomoAgentCore, store: PresetStore, onStarted: @escaping @MainActor () -> Void) {
+    init(
+        agent: PomoAgentCore,
+        store: PresetStore,
+        onStartRequested: @escaping @MainActor () -> Void,
+        onStarted: @escaping @MainActor () -> Void
+    ) {
         _model = StateObject(
-            wrappedValue: CustomSessionModel(agent: agent, store: store, onStarted: onStarted))
+            wrappedValue: CustomSessionModel(
+                agent: agent,
+                store: store,
+                onStartRequested: onStartRequested,
+                onStarted: onStarted))
     }
 
     var body: some View {

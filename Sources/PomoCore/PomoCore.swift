@@ -35,10 +35,40 @@ public struct AlertPreferences: Codable, Equatable, Sendable {
     public static let `default` = AlertPreferences(notificationsEnabled: true, soundEnabled: true)
 }
 
+public enum AlertAuthorization: Equatable, Sendable {
+    case authorized
+    case provisional
+    case ephemeral
+    case denied
+    case notDetermined
+}
+
+public enum CompletionAlertDecision: Equatable, Sendable {
+    case notify
+    case missed
+    case unavailable
+
+    public static func resolve(
+        notificationsEnabled: Bool,
+        authorization: AlertAuthorization
+    ) -> CompletionAlertDecision {
+        guard notificationsEnabled else { return .unavailable }
+        switch authorization {
+        case .authorized, .provisional, .ephemeral:
+            return .notify
+        case .notDetermined:
+            return .missed
+        case .denied:
+            return .unavailable
+        }
+    }
+}
+
 public final class AlertPreferencesStore: @unchecked Sendable {
     private let defaults: UserDefaults
     private let preferencesKey = "pomo.alert-preferences"
     private let onboardingKey = "pomo.onboarding-completed"
+    private let notificationExplanationKey = "pomo.notification-explanation-shown"
     private let missedAlertKey = "pomo.missed-alert"
 
     public init(defaults: UserDefaults = .standard) {
@@ -60,6 +90,11 @@ public final class AlertPreferencesStore: @unchecked Sendable {
     public var hasCompletedOnboarding: Bool {
         get { defaults.bool(forKey: onboardingKey) }
         set { defaults.set(newValue, forKey: onboardingKey) }
+    }
+
+    public var hasShownNotificationExplanation: Bool {
+        get { defaults.bool(forKey: notificationExplanationKey) }
+        set { defaults.set(newValue, forKey: notificationExplanationKey) }
     }
 
     public var hasMissedAlert: Bool {

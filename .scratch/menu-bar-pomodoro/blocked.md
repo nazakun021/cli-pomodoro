@@ -29,3 +29,13 @@ Attempted: Implemented TTY-gated plain Classic setup with validated overrides, r
 Observed result: Implemented the Agent-owned read-only `presets` IPC command and versioned discovery response. A real-socket test verifies the default and named Presets return without direct CLI database access.
 
 Resolved: Ticket 07 can resume its terminal Preset-selection implementation.
+
+## Ticket 09 — Native alert validation unavailable
+
+Date: 2026-08-10
+
+Attempted: Completed the Welcome popover, Alerts settings, authorization policy, missed-alert handling, notification actions, and embedded chime. `swift build` and the full SwiftPM suite pass.
+
+Observed result: The repository has no XCUITest target, and this session did not run interactive clean-profile notification or VoiceOver validation. Source behavior is implemented, but those platform-only acceptance criteria cannot be evidenced through the current automated workflow.
+
+Required: Add an isolated XCUITest target and run clean-profile macOS validation for allowed, denied, pending, and disabled notifications, sound playback, notification actions, keyboard navigation, and VoiceOver semantics.
