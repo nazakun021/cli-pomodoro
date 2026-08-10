@@ -261,7 +261,8 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
 
     private func addSummaryItem(to menu: NSMenu, summary: DailySummary) {
         menu.addItem(
-            withTitle: "Today: \(summary.compactFocusText) Focus, \(summary.completedRounds) Rounds, "
+            withTitle:
+                "Today: \(summary.compactFocusText) Focus, \(summary.completedRounds) Rounds, "
                 + "\(summary.currentStreak)-day streak",
             action: nil,
             keyEquivalent: "")
