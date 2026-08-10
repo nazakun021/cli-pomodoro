@@ -20,6 +20,8 @@
 - Validation: `swift build` passed after each implementation slice; final `swift test` passed with 72 tests and 0 failures; `git diff --check` passed; final read-only code review found no remaining source correctness findings.
 - Added `PomoAgentKit` Xcode integration, an isolated `PomoUITests` target, and a `POMO_TEST_PROFILE` harness that uses a temporary preferences suite and support directory without starting production sockets or touching maintainer data.
 - Validation: Xcode `build-for-testing` and the complete `PomoUITests` target passed on macOS 26.5.2; the Welcome test now uses a fresh per-run profile and passes consistently; final `swift test` passed with 72 tests and 0 failures.
+- Verification run: Xcode app build and live Agent status passed; `swift run pomo start 5s --auto-start-focus --rounds 1 --json` returned a Running Focus snapshot, but repeated status checks remained Running with `remaining_seconds: 0` and did not expose completion cues. The Session was stopped cleanly afterward.
+- Verification limitation: standalone `swift run PomoAgent` crashes in `UNUserNotificationCenter.current()` because SwiftPM executables have no app bundle; notification verification must use the bundled Xcode app. Notifications, sound, and VoiceOver were not marked passed without interactive observation.
 
 - [x] First launch shows the compact Welcome popover with Pomo identity, Classic quick start, Settings, and launch-at-login offered once and off by default.
 - [x] First Session start explains notification purpose and starts timing without waiting for the authorization response.
@@ -33,4 +35,4 @@
 
 ## Blocker
 
-The source implementation and deterministic Welcome UI validation are complete. Remaining coverage requires interactive notification permission/action testing, complete Alerts routing, and manual VoiceOver/clean-profile evidence.
+The source implementation and deterministic Welcome UI validation are complete. Remaining coverage requires fixing or explaining the Xcode-app deadline transition smoke failure, interactive notification permission/action testing, complete Alerts routing, and manual VoiceOver/clean-profile evidence.

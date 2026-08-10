@@ -36,6 +36,6 @@ Date: 2026-08-10
 
 Attempted: Completed the Welcome popover, Alerts settings, authorization policy, missed-alert handling, notification actions, embedded chime, and an isolated `PomoUITests` target. `swift build`, Xcode `build-for-testing`, and the full SwiftPM suite pass.
 
-Observed result: The focused Welcome accessibility test now passes consistently with a fresh per-run preferences/support profile. Interactive notification permission/action testing and clean-profile VoiceOver validation remain unexecuted.
+Observed result: The focused Welcome accessibility test passes with a fresh per-run preferences/support profile. A live Xcode-app smoke test accepted CLI Start but remained Running with `remaining_seconds: 0` after the deadline, so completion cues were not verified. Standalone SwiftPM Agent launch also crashes because UserNotifications requires an app bundle. Interactive notification permission/action testing and clean-profile VoiceOver validation remain unexecuted.
 
 Required: Extend the UI target for Alerts and notification action routing, then run clean-profile macOS validation for allowed, denied, pending, and disabled notifications, sound playback, keyboard navigation, and VoiceOver semantics.
