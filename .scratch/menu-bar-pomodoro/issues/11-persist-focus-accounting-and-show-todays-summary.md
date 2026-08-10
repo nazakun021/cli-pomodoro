@@ -6,6 +6,14 @@
 
 **Status:** ready-for-agent
 
+## Validation evidence
+
+- Implemented and tested a durable `SummaryStore` with idempotent `(phaseID, local date)` contributions, natural Focus completion, interrupted Focus accounting for Stop and Skip, and local-midnight splitting with the completion marker on the final segment.
+- Production Agent construction injects the summary store, and deterministic tests cover natural completion, Stop, Skip, replacement accounting, persistence reload, duplicate replay, split contributions, and wall-clock rollback handling.
+- Current validation: `swift build` passed and the full Swift suite passed with 83 tests and 0 failures.
+
+Known gaps: Summary Records are still JSON rather than the required SQLite/GRDB transactional schema; Recovery is not exposed through IPC; pause/resume date anchors, weekly/streak summaries, clear/reset behavior, and full restart/recovery coverage remain incomplete.
+
 - [ ] Natural Focus completion, skip, Stop, replacement, and forced Quit finalize positive elapsed Focus transactionally with stable Phase/segment identity.
 - [ ] Only natural Focus completion writes a completed-Round marker; Break interruption and zero-elapsed Focus write no contribution.
 - [ ] Replacement prevalidates the new Session, commits eligible old Focus once, swaps serialized volatile state, and preserves all prior Summary Records.

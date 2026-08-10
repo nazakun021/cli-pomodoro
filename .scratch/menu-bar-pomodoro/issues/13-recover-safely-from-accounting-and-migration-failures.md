@@ -6,6 +6,12 @@
 
 **Status:** ready-for-agent
 
+## Current implementation note
+
+The current Agent detects summary persistence failure for some mutation paths and returns an actionable accounting error, but it does not yet expose the required Recovery descriptor or Retry/Export/Discard/Reset actions through IPC. Summary persistence also lacks the SQLite migration, backup, and transactional guarantees required by the database design.
+
+The ticket remains ready-for-agent and is blocked on the complete accounting contract in Ticket 11.
+
 - [ ] A required accounting failure enters Recovery before the intended Transition, retains the pending contribution and precomputed next state in memory, and stops timing and ordinary mutation.
 - [ ] Accounting Recovery advertises Retry, Export, Discard Session, and Reset Data; migration and unknown-schema reasons expose only their contracted capabilities.
 - [ ] Retry applies pending accounting exactly once before entering the predetermined next state, while successful migration Retry returns Idle.
