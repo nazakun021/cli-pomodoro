@@ -22,6 +22,8 @@
 - Validation: Xcode `build-for-testing` and the complete `PomoUITests` target passed on macOS 26.5.2; the Welcome test now uses a fresh per-run profile and passes consistently; final `swift test` passed with 72 tests and 0 failures.
 - Verification run: Xcode app build and live Agent status passed; `swift run pomo start 5s --auto-start-focus --rounds 1 --json` returned a Running Focus snapshot, but repeated status checks remained Running with `remaining_seconds: 0` and did not expose completion cues. The Session was stopped cleanly afterward.
 - Verification limitation: standalone `swift run PomoAgent` crashes in `UNUserNotificationCenter.current()` because SwiftPM executables have no app bundle; notification verification must use the bundled Xcode app. Notifications, sound, and VoiceOver were not marked passed without interactive observation.
+- Standalone Agent startup now skips UserNotifications APIs when no app bundle is present, while bundled app launches retain notification delegates, categories, authorization, and completion delivery.
+- Focused validation: `swift test --filter 'LifecycleTests|SummaryTests'` passed with 5 tests and 0 failures.
 
 - [x] First launch shows the compact Welcome popover with Pomo identity, Classic quick start, Settings, and launch-at-login offered once and off by default.
 - [x] First Session start explains notification purpose and starts timing without waiting for the authorization response.

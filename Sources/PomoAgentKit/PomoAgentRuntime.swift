@@ -11,6 +11,10 @@ private func localDateString(_ date: Date) -> String {
     return formatter.string(from: date)
 }
 
+private var notificationsAvailable: Bool {
+    Bundle.main.bundleIdentifier != nil
+}
+
 public struct PomoAgent {
     @MainActor
     public static func main() async {
@@ -82,14 +86,20 @@ public struct PomoAgent {
         let statusItem = IdleStatusItem(
             agent: agent, server: server, presetStore: presetStore, lifecycleStore: lifecycleStore,
             priorInterruption: priorInterruption, alertPreferences: alertPreferences)
-        let notificationDelegate = PomoNotificationDelegate(
-            agent: agent, openStatus: { statusItem.showStatus() })
-        UNUserNotificationCenter.current().delegate = notificationDelegate
-        let startNext = UNNotificationAction(
-            identifier: "POMO_START_NEXT", title: "Start Next Phase", options: [])
-        let phaseCategory = UNNotificationCategory(
-            identifier: "POMO_PHASE", actions: [startNext], intentIdentifiers: [])
-        UNUserNotificationCenter.current().setNotificationCategories([phaseCategory])
+        let notificationDelegate: PomoNotificationDelegate?
+        if notificationsAvailable {
+            let delegate = PomoNotificationDelegate(
+                agent: agent, openStatus: { statusItem.showStatus() })
+            notificationDelegate = delegate
+            UNUserNotificationCenter.current().delegate = delegate
+            let startNext = UNNotificationAction(
+                identifier: "POMO_START_NEXT", title: "Start Next Phase", options: [])
+            let phaseCategory = UNNotificationCategory(
+                identifier: "POMO_PHASE", actions: [startNext], intentIdentifiers: [])
+            UNUserNotificationCenter.current().setNotificationCategories([phaseCategory])
+        } else {
+            notificationDelegate = nil
+        }
         withExtendedLifetime(statusItem) {
             withExtendedLifetime(notificationDelegate) {
                 application.run()
@@ -382,6 +392,7 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
     }
 
     private func requestNotificationAuthorizationIfNeeded() {
+        guard notificationsAvailable else { return }
         guard alertPreferences.preferences.notificationsEnabled else { return }
         guard !authorizationRequested else { return }
         authorizationRequested = true
@@ -403,6 +414,7 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
     }
 
     private func deliverCompletionCue(from previous: AgentSnapshot?, to current: AgentSnapshot) {
+        guard notificationsAvailable else { return }
         guard let previous,
             previous.agentState == .session,
             previous.phaseType == .focus,
@@ -516,6 +528,15 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
     }
 
     @objc private func openAlerts() {
+        guard notificationsAvailable else {
+            let alert = NSAlert()
+            alert.messageText = "Alerts Unavailable"
+            alert.informativeText =
+                "Notifications are available when Pomo runs as a bundled macOS app."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
         UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in
             Task { @MainActor [weak self] in
                 self?.presentAlerts(for: settings.authorizationStatus)
