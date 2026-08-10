@@ -3,6 +3,7 @@ import AppKit
 @MainActor
 final class WelcomePopoverController: NSObject {
     private let popover = NSPopover()
+    private var testWindow: NSWindow?
 
     init(
         onStart: @escaping @MainActor (Bool) -> Void,
@@ -12,23 +13,44 @@ final class WelcomePopoverController: NSObject {
         super.init()
         popover.behavior = .transient
         popover.contentSize = NSSize(width: 360, height: 230)
-        popover.contentViewController = WelcomeViewController(
+        let contentViewController = WelcomeViewController(
             onStart: { [weak self] launchAtLogin in
-                self?.popover.close()
+                self?.close()
                 onStart(launchAtLogin)
             },
             onAlerts: { [weak self] launchAtLogin in
-                self?.popover.close()
+                self?.close()
                 onAlerts(launchAtLogin)
             },
             onLater: { [weak self] launchAtLogin in
-                self?.popover.close()
+                self?.close()
                 onLater(launchAtLogin)
             })
+        popover.contentViewController = contentViewController
     }
 
-    func show(relativeTo button: NSStatusBarButton) {
+    func show(relativeTo button: NSStatusBarButton?) {
+        if ProcessInfo.processInfo.environment["POMO_TEST_PROFILE"] != nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 360, height: 230),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false)
+            window.title = "Welcome to Pomo"
+            window.contentViewController = popover.contentViewController
+            window.center()
+            window.makeKeyAndOrderFront(nil)
+            testWindow = window
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        guard let button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    }
+
+    private func close() {
+        popover.close()
+        testWindow?.close()
     }
 }
 

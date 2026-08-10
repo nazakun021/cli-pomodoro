@@ -9,15 +9,49 @@ public struct PomoAgent {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
 
-        guard
-            let applicationSupportDirectory = FileManager.default.urls(
-                for: .applicationSupportDirectory, in: .userDomainMask
-            ).first,
-            let presetStore = try? PresetStore.applicationSupportStore(
-                in: applicationSupportDirectory)
-        else {
+        let environment = ProcessInfo.processInfo.environment
+        if let testProfile = environment["POMO_TEST_PROFILE"] {
+            application.setActivationPolicy(.regular)
+            let defaults = UserDefaults(suiteName: testProfile) ?? .standard
+            let alertPreferences = AlertPreferencesStore(defaults: defaults)
+            if !alertPreferences.hasCompletedOnboarding {
+                let welcome = WelcomePopoverController(
+                    onStart: { _ in alertPreferences.hasCompletedOnboarding = true },
+                    onAlerts: { _ in alertPreferences.hasCompletedOnboarding = true },
+                    onLater: { _ in alertPreferences.hasCompletedOnboarding = true })
+                DispatchQueue.main.async {
+                    welcome.show(relativeTo: nil)
+                }
+                withExtendedLifetime(welcome) {
+                    application.run()
+                }
+            } else {
+                application.run()
+            }
             return
         }
+        let applicationSupportDirectory: URL
+        if let testSupportDirectory = environment["POMO_TEST_SUPPORT_DIR"] {
+            applicationSupportDirectory = URL(
+                fileURLWithPath: testSupportDirectory, isDirectory: true)
+            try? FileManager.default.createDirectory(
+                at: applicationSupportDirectory, withIntermediateDirectories: true)
+        } else if let standardSupportDirectory = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first {
+            applicationSupportDirectory = standardSupportDirectory
+        } else {
+            return
+        }
+        guard
+            let presetStore = try? PresetStore.applicationSupportStore(
+                in: applicationSupportDirectory)
+        else { return }
+        let preferencesDefaults =
+            environment["POMO_TEST_PROFILE"]
+            .flatMap(UserDefaults.init(suiteName:)) ?? .standard
+        let alertPreferences = AlertPreferencesStore(defaults: preferencesDefaults)
+        let lifecycleStore = AgentLifecycleStore(defaults: preferencesDefaults)
         let summaryURL =
             applicationSupportDirectory
             .appendingPathComponent("Pomo", isDirectory: true)
@@ -27,7 +61,6 @@ public struct PomoAgent {
         }
         let agent = PomoAgentCore(
             productVersion: "0.1.0", presetStore: presetStore, summaryStore: summaryStore)
-        let lifecycleStore = AgentLifecycleStore()
         let snapshot = await agent.snapshot()
         lifecycleStore.markRunning(
             instanceID: snapshot.agentInstanceID ?? UUID(),
@@ -40,7 +73,7 @@ public struct PomoAgent {
         let priorInterruption = lifecycleStore.consumeUnexpectedTermination()
         let statusItem = IdleStatusItem(
             agent: agent, server: server, presetStore: presetStore, lifecycleStore: lifecycleStore,
-            priorInterruption: priorInterruption)
+            priorInterruption: priorInterruption, alertPreferences: alertPreferences)
         let notificationDelegate = PomoNotificationDelegate(
             agent: agent, openStatus: { statusItem.showStatus() })
         UNUserNotificationCenter.current().delegate = notificationDelegate
@@ -83,14 +116,15 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
         server: LocalAgentServer,
         presetStore: PresetStore,
         lifecycleStore: AgentLifecycleStore,
-        priorInterruption: AgentLifecycleMarker?
+        priorInterruption: AgentLifecycleMarker?,
+        alertPreferences: AlertPreferencesStore
     ) {
         self.agent = agent
         self.server = server
         self.presetStore = presetStore
         self.lifecycleStore = lifecycleStore
         self.priorInterruption = priorInterruption
-        alertPreferences = AlertPreferencesStore()
+        self.alertPreferences = alertPreferences
         missedAlert = alertPreferences.hasMissedAlert
         super.init()
         refresh()
@@ -438,7 +472,7 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
 
     private func showWelcomeIfNeeded() {
         guard !alertPreferences.hasCompletedOnboarding else { return }
-        guard let button = item.button else { return }
+        NSApp.activate(ignoringOtherApps: true)
         welcomePopover = WelcomePopoverController(
             onStart: { [weak self] launchAtLogin in
                 guard let self else { return }
@@ -457,7 +491,7 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
                 self.alertPreferences.hasCompletedOnboarding = true
                 self.registerLaunchAtLoginIfRequested(launchAtLogin)
             })
-        welcomePopover?.show(relativeTo: button)
+        welcomePopover?.show(relativeTo: item.button)
     }
 
     @objc private func openAlerts() {

@@ -34,8 +34,8 @@ Resolved: Ticket 07 can resume its terminal Preset-selection implementation.
 
 Date: 2026-08-10
 
-Attempted: Completed the Welcome popover, Alerts settings, authorization policy, missed-alert handling, notification actions, and embedded chime. `swift build` and the full SwiftPM suite pass.
+Attempted: Completed the Welcome popover, Alerts settings, authorization policy, missed-alert handling, notification actions, embedded chime, and an isolated `PomoUITests` target. `swift build`, Xcode `build-for-testing`, and the full SwiftPM suite pass.
 
-Observed result: The repository has no XCUITest target, and this session did not run interactive clean-profile notification or VoiceOver validation. Source behavior is implemented, but those platform-only acceptance criteria cannot be evidenced through the current automated workflow.
+Observed result: The focused Welcome accessibility test passed once with an isolated preferences/support profile, but subsequent runs intermittently failed to foreground the accessory app. Interactive notification permission/action testing and clean-profile VoiceOver validation remain unexecuted.
 
-Required: Add an isolated XCUITest target and run clean-profile macOS validation for allowed, denied, pending, and disabled notifications, sound playback, notification actions, keyboard navigation, and VoiceOver semantics.
+Required: Extend the UI target for Alerts and notification action routing, then run clean-profile macOS validation for allowed, denied, pending, and disabled notifications, sound playback, keyboard navigation, and VoiceOver semantics.

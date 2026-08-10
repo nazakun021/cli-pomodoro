@@ -18,6 +18,8 @@
 
 - Added pending-versus-denied authorization policy, notification-purpose explanation persistence, disabled-notification permission suppression, default notification status routing, menu-open missed-alert acknowledgement, duplicate-cue prevention, a compact Welcome popover, and an embedded completion chime.
 - Validation: `swift build` passed after each implementation slice; final `swift test` passed with 72 tests and 0 failures; `git diff --check` passed; final read-only code review found no remaining source correctness findings.
+- Added `PomoAgentKit` Xcode integration, an isolated `PomoUITests` target, and a `POMO_TEST_PROFILE` harness that uses a temporary preferences suite and support directory without starting production sockets or touching maintainer data.
+- Validation: Xcode `build-for-testing` passed; the focused `PomoOnboardingUITests.testWelcomeOffersAccessibleFirstLaunchActions` passed once on macOS 26.5.2, while later runs intermittently failed to foreground the accessory app; final `swift test` passed with 72 tests and 0 failures.
 
 - [x] First launch shows the compact Welcome popover with Pomo identity, Classic quick start, Settings, and launch-at-login offered once and off by default.
 - [x] First Session start explains notification purpose and starts timing without waiting for the authorization response.
@@ -31,4 +33,4 @@
 
 ## Blocker
 
-The source implementation and SwiftPM validation are complete. The remaining UI automation and clean-profile macOS evidence require an XCUITest target and interactive notification/VoiceOver execution, neither of which exists in the current package workflow.
+The source implementation and UI-test target compile. Remaining coverage requires stable foregrounding of the accessory app in this host, interactive notification permission/action testing, complete Alerts routing, and manual VoiceOver/clean-profile evidence. The current test target intentionally avoids claiming intermittent UI-runner results as a release gate.
