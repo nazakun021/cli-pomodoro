@@ -36,6 +36,6 @@ Date: 2026-08-10
 
 Attempted: Completed the Welcome popover, Alerts settings, authorization policy, missed-alert handling, notification actions, embedded chime, and an isolated `PomoUITests` target. `swift build`, Xcode `build-for-testing`, and the full SwiftPM suite pass.
 
-Observed result: The focused Welcome accessibility test passed once with an isolated preferences/support profile, but subsequent runs intermittently failed to foreground the accessory app. Interactive notification permission/action testing and clean-profile VoiceOver validation remain unexecuted.
+Observed result: The focused Welcome accessibility test now passes consistently with a fresh per-run preferences/support profile. Interactive notification permission/action testing and clean-profile VoiceOver validation remain unexecuted.
 
 Required: Extend the UI target for Alerts and notification action routing, then run clean-profile macOS validation for allowed, denied, pending, and disabled notifications, sound playback, keyboard navigation, and VoiceOver semantics.

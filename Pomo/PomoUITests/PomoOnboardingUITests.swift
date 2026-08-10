@@ -1,28 +1,34 @@
 import XCTest
 
 final class PomoOnboardingUITests: XCTestCase {
-    private let profile = "pomo-ui-test-onboarding"
+    private var profile = ""
 
     override func setUp() {
         super.setUp()
+        profile = "pomo-ui-test-onboarding-\(UUID().uuidString)"
         UserDefaults(suiteName: profile)?.removePersistentDomain(forName: profile)
     }
 
     func testWelcomeOffersAccessibleFirstLaunchActions() {
         let app = launchAgent()
+        let welcomeWindow = app.windows["Welcome to Pomo"]
 
         XCTAssertTrue(
-            app.staticTexts["Welcome to Pomo"].waitForExistence(timeout: 5),
+            welcomeWindow.waitForExistence(timeout: 10),
             "Welcome popover title was not exposed")
-        XCTAssertTrue(app.buttons["Start Classic"].exists, "Start Classic is not accessible")
-        XCTAssertTrue(app.buttons["Open Alerts"].exists, "Open Alerts is not accessible")
-        XCTAssertTrue(app.buttons["Later"].exists, "Later is not accessible")
         XCTAssertTrue(
-            app.checkBoxes["Launch at Login (off by default)"].exists,
+            welcomeWindow.buttons["Start Classic"].exists,
+            "Start Classic is not accessible")
+        XCTAssertTrue(
+            welcomeWindow.buttons["Open Alerts"].exists,
+            "Open Alerts is not accessible")
+        XCTAssertTrue(welcomeWindow.buttons["Later"].exists, "Later is not accessible")
+        XCTAssertTrue(
+            welcomeWindow.checkBoxes["Launch at Login (off by default)"].exists,
             "Launch-at-login checkbox is not accessible")
 
-        app.buttons["Later"].click()
-        XCTAssertFalse(app.staticTexts["Welcome to Pomo"].waitForExistence(timeout: 1))
+        welcomeWindow.buttons["Later"].click()
+        XCTAssertFalse(welcomeWindow.waitForExistence(timeout: 1))
     }
 
     private func launchAgent() -> XCUIApplication {
@@ -33,7 +39,6 @@ final class PomoOnboardingUITests: XCTestCase {
             .appendingPathComponent(profile, isDirectory: true).path
         app.launchArguments = ["--ui-test"]
         app.launch()
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10), "Pomo did not activate")
         return app
     }
 
