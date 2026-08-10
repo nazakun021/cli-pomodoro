@@ -30,3 +30,7 @@
 - Full validation after the persistent transport foundation passed with 57 tests, 0 failures; Core diagnostics and `git diff --check` passed.
 - The CLI now consumes the persistent Follow socket: JSON mode emits every ordered event as NDJSON, while human mode renders the initial dashboard and remains attached for later updates.
 - `testFollowStreamReceivesLaterSessionSnapshot` passed, proving an initial snapshot followed by a later Agent-owned Session transition; `swift build` passed, the full suite passed with 70 tests and 0 failures, and `git diff --check` passed.
+- Human Follow now detaches on `q`, `Q`, Escape, or Control-C, restores termios settings, closes the Follow socket on cancellation, preserves redirected output, and reports unexpected Agent disconnects.
+- Validation: `swift build`, full `swift test` with 83 passing tests, diagnostics, and `git diff --check` passed.
+
+Remaining criteria: PTY coverage for keypresses and terminal restoration, durable transition history/backpressure behavior, and precise redraw/coalescing rules.

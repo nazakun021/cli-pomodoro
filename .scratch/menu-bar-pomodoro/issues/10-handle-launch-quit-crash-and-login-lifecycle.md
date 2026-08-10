@@ -10,6 +10,13 @@
 
 - Ticket 10 is the prerequisite for ticket 07 cold-Agent Preset discovery and Start. The launch adapter must target the installed app artifact rather than the development executable.
 
+- Added durable clean/crash lifecycle markers, one-time interruption notices, ordered startup persistence, immediate active-session marking after menu starts, and clean-quit protection against stale refresh tasks.
+- `pomo start` now probes the Agent and launches a packaged Pomo app when needed, with stale-socket recovery and bounded startup waiting. Launch-at-login uses `SMAppService.mainApp` with enabled, disabled, approval-pending, and failure feedback states.
+- Added `PomoAgent.app` metadata and a safe ad-hoc Hardened Runtime packaging helper using the ADR-approved `com.nazakun.pomo` identifier; strict codesign verification passed.
+- Validation: `swift build`, full `swift test` with 83 passing tests, lifecycle-focused tests, package verification, diagnostics, and `git diff --check` passed.
+
+Remaining criteria: universal app/CLI packaging, launch-at-login UI/settings integration and real registration evidence, forced-quit semantics, and full cold-launch/repeated-launch/crash process coverage.
+
 - [ ] Start launches the installed Agent when needed and acknowledges within the bounded startup wait or fails with actionable Agent-unavailable guidance.
 - [ ] Repeated app launches forward to the existing Agent and cannot create competing owners.
 - [ ] Launch at login is opt-in through the supported macOS service API, can be enabled and disabled, and exposes registration failures in Settings.

@@ -33,6 +33,10 @@
 - Validation: `swift build` and `swift test` passed; CLI diagnostics and `git diff --check` are clean.
 - Bare `pomo --replace` now exits 2 with direct `pomo start` guidance, ensuring interactive replacement is only confirmed from Review.
 - Validation: `swift build`, the direct bare-flag behavior check, and `swift test` passed; CLI diagnostics are clean.
+- Closed stdin now cancels the plain wizard from preset selection, text prompts, boolean prompts, and before any Agent Start mutation.
+- Validation: `swift build`, full `swift test` with 83 passing tests, a pseudo-terminal EOF probe, diagnostics, and `git diff --check` passed.
+
+Remaining criteria: signal/Control-C handling beyond EOF, full interactive key navigation, resize recovery, terminal restoration snapshots, and comprehensive pseudo-terminal coverage.
 
 ## Comments
 

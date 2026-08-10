@@ -13,6 +13,11 @@
 - `testAlertPreferencesDefaultToEnabledAndPersistOnboardingDismissal` passed; `swift build` passed and touched-file diagnostics are clean.
 - Review follow-up moved onboarding persistence until after the Welcome dialog returns and renamed the action to `Open Alerts`; notification delivery and authorization remain outstanding acceptance criteria.
 
+- Agent completion cues now request authorization without blocking Session start, independently honor sound and notification preferences, persist missed-alert state, expose accessible dismissal, and register a stale-safe Start Next Phase notification action for Ready phases.
+- Validation: `swift build`, full `swift test` with 83 passing tests, strict diagnostics, and signed app-bundle verification passed.
+
+Remaining criteria: pending-authorization deferral semantics, Open System Settings routing, complete notification action/UI automation coverage, bundled chime validation, and full clean-profile evidence.
+
 - [ ] First launch shows the compact Welcome popover with Pomo identity, Classic quick start, Settings, and launch-at-login offered once and off by default.
 - [ ] First Session start explains notification purpose and starts timing without waiting for the authorization response.
 - [ ] Notifications and bundled chime are independently enabled by default, use normal system output volume, and remain configurable in Alerts.
