@@ -356,6 +356,7 @@ struct PomoCLI {
         let client = LocalAgentClient(path: RuntimeEndpoint.socketPath())
         switch command {
         case "start":
+            await launchAgentIfNeeded()
             let response: PublicResponse?
             if let configuration {
                 response = try? await client.start(configuration: configuration, replace: replace)
@@ -396,6 +397,33 @@ struct PomoCLI {
                     command: "skip")
         default:
             return (try? await client.status()) ?? .agentNotRunning()
+        }
+    }
+
+    private static func launchAgentIfNeeded() async {
+        let socketPath = RuntimeEndpoint.socketPath()
+        if (try? await LocalAgentClient(path: socketPath).status()) != nil { return }
+        let candidates = [
+            "/Applications/Pomo.app",
+            FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Applications/Pomo.app").path,
+            URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent(".build/release/Pomo.app").path,
+            URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent(".build/arm64-apple-macosx/release/Pomo.app").path,
+            URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent(".build/x86_64-apple-macosx/release/Pomo.app").path
+        ]
+        guard let appPath = candidates.first(where: {
+            FileManager.default.fileExists(atPath: $0)
+        }) else { return }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-a", appPath, "--background"]
+        guard (try? process.run()) != nil else { return }
+        for _ in 0..<30 {
+            guard !FileManager.default.fileExists(atPath: socketPath) else { return }
+            try? await Task.sleep(nanoseconds: 100_000_000)
         }
     }
 
