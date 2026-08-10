@@ -125,7 +125,10 @@ struct PomoCLI {
     }
 
     private static func runPlainSetup() async {
-        let preset = await selectPreset() ?? .classic
+        guard let preset = await selectPreset() else {
+            print("Setup cancelled.")
+            return
+        }
         var focus = "\(preset.configuration.focusSeconds)s"
         var shortBreak = "\(preset.configuration.shortBreakSeconds)s"
         var longBreak = "\(preset.configuration.longBreakSeconds)s"
@@ -139,16 +142,48 @@ struct PomoCLI {
         while true {
             print("Pomo setup")
             print("Preset: \(preset.name) (customize values below; press Enter to keep a value)")
-            focus = prompt("Focus duration", current: focus)
-            shortBreak = prompt("Short Break duration", current: shortBreak)
-            longBreak = prompt("Long Break duration", current: longBreak)
-            cadence = prompt("Long Break cadence", current: cadence)
-            openEnded = promptBoolean("Open-ended", current: openEnded)
-            if !openEnded {
-                rounds = prompt("Rounds", current: rounds)
+            guard let value = prompt("Focus duration", current: focus) else {
+                print("Setup cancelled.")
+                return
             }
-            autoStartFocus = promptBoolean("Auto-start Focus", current: autoStartFocus)
-            autoStartBreaks = promptBoolean("Auto-start Breaks", current: autoStartBreaks)
+            focus = value
+            guard let value = prompt("Short Break duration", current: shortBreak) else {
+                print("Setup cancelled.")
+                return
+            }
+            shortBreak = value
+            guard let value = prompt("Long Break duration", current: longBreak) else {
+                print("Setup cancelled.")
+                return
+            }
+            longBreak = value
+            guard let value = prompt("Long Break cadence", current: cadence) else {
+                print("Setup cancelled.")
+                return
+            }
+            cadence = value
+            guard let value = promptBoolean("Open-ended", current: openEnded) else {
+                print("Setup cancelled.")
+                return
+            }
+            openEnded = value
+            if !openEnded {
+                guard let value = prompt("Rounds", current: rounds) else {
+                    print("Setup cancelled.")
+                    return
+                }
+                rounds = value
+            }
+            guard let value = promptBoolean("Auto-start Focus", current: autoStartFocus) else {
+                print("Setup cancelled.")
+                return
+            }
+            autoStartFocus = value
+            guard let value = promptBoolean("Auto-start Breaks", current: autoStartBreaks) else {
+                print("Setup cancelled.")
+                return
+            }
+            autoStartBreaks = value
             do {
                 configuration = try PresetConfigurationDraft(
                     focus: focus, shortBreak: shortBreak, longBreak: longBreak,
@@ -218,15 +253,17 @@ struct PomoCLI {
         return choices[index - 1]
     }
 
-    private static func prompt(_ label: String, current: String) -> String {
+    private static func prompt(_ label: String, current: String) -> String? {
         print("\(label) [\(current)]", terminator: " ")
-        guard let value = readLine(), !value.isEmpty else { return current }
+        guard let value = readLine() else { return nil }
+        guard !value.isEmpty else { return current }
         return value
     }
 
-    private static func promptBoolean(_ label: String, current: Bool) -> Bool {
+    private static func promptBoolean(_ label: String, current: Bool) -> Bool? {
         while true {
-            let answer = prompt(label, current: current ? "y" : "n").lowercased()
+            guard let value = prompt(label, current: current ? "y" : "n") else { return nil }
+            let answer = value.lowercased()
             switch answer {
             case "y", "yes": return true
             case "n", "no": return false
