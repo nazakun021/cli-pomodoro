@@ -17,3 +17,4 @@ Scripts/package-agent-app.sh release
 
 The bundle is written to `.build/release/Pomo.app` by default and uses the
 `com.nazakun.pomo` bundle identifier with ad-hoc Hardened Runtime signing.
+Set `POMO_ARCHES="arm64 x86_64"` to produce universal Agent and CLI binaries.
