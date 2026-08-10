@@ -138,6 +138,19 @@ final class PresetRepositoryTests: XCTestCase {
         XCTAssertEqual(try store.recentPresets(), [third, second])
     }
 
+    func testAcceptedClassicStartUpdatesRecencyWithoutMutatingClassic() throws {
+        let databaseURL = temporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: databaseURL) }
+        let store = try PresetStore(databaseURL: databaseURL)
+        let userPreset = try store.create(name: "Writing", configuration: .classic)
+
+        try store.recordAcceptedStart(for: Preset.classicID)
+        try store.selectDefault(id: userPreset.id)
+
+        XCTAssertEqual(try store.recentPresets(), [.classic])
+        XCTAssertEqual(try store.presets().first, .classic)
+    }
+
     private func temporaryDatabaseURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("pomo-presets-\(UUID().uuidString).sqlite")

@@ -18,6 +18,7 @@
 - Validation: `swift test --filter LifecycleTests` passed with 2 tests and 0 failures; final full-suite validation is recorded below.
 - Temporary bundled `Pomo.app` packaging for the lifecycle smoke path passed ad-hoc Hardened Runtime signing and strict codesign verification; the isolated Xcode UI target passed with 2 tests and 0 failures.
 - Manual menu validation: the Pomo status item is visible and clickable after launch, with `Quit Pomo` exposed in the startup menu.
+- The persistent Agent now disables AppKit automatic termination while Idle, so menu and CLI commands retain one live owner. Menu Start failures are surfaced instead of silently ignored.
 
 Remaining criteria: universal app/CLI packaging, launch-at-login UI/settings integration and real registration evidence, forced-quit semantics, and full cold-launch/repeated-launch/crash process coverage.
 

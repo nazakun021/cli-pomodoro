@@ -373,15 +373,37 @@ public final class PresetStore: @unchecked Sendable {
                     next_start_sequence INTEGER NOT NULL DEFAULT 0
                 )
                 """)
-            try execute(
-                """
-                CREATE TRIGGER IF NOT EXISTS protect_classic_update
-                BEFORE UPDATE ON presets
-                WHEN OLD.is_classic = 1
-                BEGIN
-                    SELECT RAISE(ABORT, 'Classic Preset is immutable');
-                END
-                """)
+            try execute("SAVEPOINT repair_classic_update_trigger")
+            do {
+                try execute("DROP TRIGGER IF EXISTS protect_classic_update")
+                try execute(
+                    """
+                    CREATE TRIGGER protect_classic_update
+                    BEFORE UPDATE OF
+                        id,
+                        name,
+                        normalized_name,
+                        focus_seconds,
+                        short_break_seconds,
+                        long_break_seconds,
+                        long_break_every,
+                        open_ended,
+                        target_rounds,
+                        auto_start_focus,
+                        auto_start_breaks,
+                        is_classic
+                    ON presets
+                    WHEN OLD.is_classic = 1
+                    BEGIN
+                        SELECT RAISE(ABORT, 'Classic Preset is immutable');
+                    END
+                    """)
+                try execute("RELEASE repair_classic_update_trigger")
+            } catch {
+                try? execute("ROLLBACK TO repair_classic_update_trigger")
+                try? execute("RELEASE repair_classic_update_trigger")
+                throw error
+            }
             try execute(
                 """
                 CREATE TRIGGER IF NOT EXISTS protect_classic_delete
@@ -1472,7 +1494,7 @@ public final class LocalAgentServer: @unchecked Sendable {
                 switch request.command.name {
                 case "status":
                     guard request.command == IPCCommand(name: "status") else { return }
-                    snapshot = await agent.snapshot()
+                    snapshot = await agent.advanceIfDue()
                 case "follow":
                     guard request.command == IPCCommand(name: "follow") else { return }
                     snapshot = await agent.snapshot()

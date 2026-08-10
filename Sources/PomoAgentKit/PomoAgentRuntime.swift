@@ -20,6 +20,8 @@ public struct PomoAgent {
     public static func main() async {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
+        ProcessInfo.processInfo.disableAutomaticTermination(
+            "Pomo Agent must remain available for menu and CLI commands")
 
         let environment = ProcessInfo.processInfo.environment
         if let testProfile = environment["POMO_TEST_PROFILE"] {
@@ -117,7 +119,7 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
     private let priorInterruption: AgentLifecycleMarker?
     private let alertPreferences: AlertPreferencesStore
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    private var refreshTimer: Timer?
+    private var refreshTimer: DispatchSourceTimer?
     private var sleepObserver: NSObjectProtocol?
     private var settingsWindow: PresetSettingsWindowController?
     private var customSessionPopover: CustomSessionPopoverController?
@@ -178,11 +180,15 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
                 self.refresh()
             }
         }
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 1, repeating: 1)
+        timer.setEventHandler { [weak self] in
             Task { @MainActor [weak self] in
                 self?.refresh()
             }
         }
+        timer.resume()
+        refreshTimer = timer
     }
 
     private func refresh() {
@@ -312,8 +318,11 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
         explainNotificationsIfNeeded()
         requestNotificationAuthorizationIfNeeded()
         Task { [agent] in
-            if let snapshot = try? await agent.startClassic() {
+            do {
+                let snapshot = try await agent.startClassic()
                 markLifecycle(for: snapshot)
+            } catch {
+                presentStartFailure(name: "Classic")
             }
             refresh()
         }
@@ -348,11 +357,22 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
         explainNotificationsIfNeeded()
         requestNotificationAuthorizationIfNeeded()
         Task { [agent] in
-            if let snapshot = try? await agent.start(presetID: id) {
+            do {
+                let snapshot = try await agent.start(presetID: id)
                 markLifecycle(for: snapshot)
+            } catch {
+                presentStartFailure(name: sender.title)
             }
             refresh()
         }
+    }
+
+    private func presentStartFailure(name: String) {
+        let alert = NSAlert()
+        alert.messageText = "Unable to Start Session"
+        alert.informativeText = "Pomo could not start \(name). Try again or reopen Pomo."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     @objc private func openCustomSession() {
@@ -672,7 +692,7 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
     private func finishQuit() {
         isQuitting = true
         refreshGeneration += 1
-        refreshTimer?.invalidate()
+        refreshTimer?.cancel()
         if let sleepObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(sleepObserver)
         }

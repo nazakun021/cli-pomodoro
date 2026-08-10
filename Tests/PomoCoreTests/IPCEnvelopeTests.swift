@@ -89,6 +89,32 @@ final class IPCEnvelopeTests: XCTestCase {
         XCTAssertEqual(response.result?.remainingSeconds, 60)
     }
 
+    func testStatusAdvancesACompletedFiniteSession() async throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pomo-test-\(UUID().uuidString).sock").path
+        let clock = IPCClock()
+        let agent = PomoAgentCore(productVersion: "0.1.0", clock: clock.clock)
+        let server = try LocalAgentServer(path: path, agent: agent)
+        defer { server.stop() }
+        let configuration = try SessionConfiguration(
+            focusSeconds: 1,
+            shortBreakSeconds: 1,
+            longBreakSeconds: 1,
+            longBreakEvery: 4,
+            openEnded: false,
+            targetRounds: 1,
+            autoStartFocus: false,
+            autoStartBreaks: true)
+        let client = LocalAgentClient(path: path)
+
+        _ = try await client.startResponse(requestID: UUID(), configuration: configuration)
+        clock.advance(by: 1)
+        let observed = try await client.statusResponse(requestID: UUID())
+
+        XCTAssertEqual(observed.result?.agentState, .idle)
+        XCTAssertEqual(observed.result?.revision, 2)
+    }
+
     func testConfiguredCLIStartRecordsItsDefaultPreset() async throws {
         let databaseURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("pomo-cli-recents-\(UUID().uuidString).sqlite")
@@ -297,4 +323,35 @@ private func utcTimestamp(_ date: Date) -> String {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     return formatter.string(from: date)
+}
+
+private final class IPCClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var monotonicNow: TimeInterval = 0
+    private var wallNow = Date()
+
+    var clock: AgentClock {
+        AgentClock(
+            monotonicNow: { [weak self] in self?.monotonic() ?? 0 },
+            wallNow: { [weak self] in self?.wall() ?? Date() })
+    }
+
+    func advance(by interval: TimeInterval) {
+        lock.lock()
+        monotonicNow += interval
+        wallNow.addTimeInterval(interval)
+        lock.unlock()
+    }
+
+    private func monotonic() -> TimeInterval {
+        lock.lock()
+        defer { lock.unlock() }
+        return monotonicNow
+    }
+
+    private func wall() -> Date {
+        lock.lock()
+        defer { lock.unlock() }
+        return wallNow
+    }
 }
