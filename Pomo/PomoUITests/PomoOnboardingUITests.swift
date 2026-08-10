@@ -31,6 +31,20 @@ final class PomoOnboardingUITests: XCTestCase {
         XCTAssertFalse(welcomeWindow.waitForExistence(timeout: 1))
     }
 
+    func testWelcomeDismissalPersistsAcrossRelaunch() {
+        let app = launchAgent()
+        let welcomeWindow = app.windows["Welcome to Pomo"]
+        XCTAssertTrue(welcomeWindow.waitForExistence(timeout: 10))
+
+        welcomeWindow.buttons["Later"].click()
+        XCTAssertFalse(welcomeWindow.waitForExistence(timeout: 1))
+        app.terminate()
+
+        let relaunched = launchAgent()
+        XCTAssertFalse(relaunched.windows["Welcome to Pomo"].waitForExistence(timeout: 2))
+        relaunched.terminate()
+    }
+
     private func launchAgent() -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "com.nazakun.pomo")
         app.launchEnvironment["POMO_TEST_PROFILE"] = profile

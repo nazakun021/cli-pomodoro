@@ -16,6 +16,7 @@
 - Validation: `swift build`, full `swift test` with 83 passing tests, lifecycle-focused tests, package verification, diagnostics, and `git diff --check` passed.
 - Active menu Quit now confirms before ending a Session, saves eligible partial Focus through the Agent, refuses shutdown when accounting fails, and tolerates a Session ending while the confirmation dialog is open. Deterministic lifecycle-marker tests cover one-time crash notices and clean exits.
 - Validation: `swift test --filter LifecycleTests` passed with 2 tests and 0 failures; final full-suite validation is recorded below.
+- Temporary bundled `Pomo.app` packaging for the lifecycle smoke path passed ad-hoc Hardened Runtime signing and strict codesign verification; the isolated Xcode UI target passed with 2 tests and 0 failures.
 
 Remaining criteria: universal app/CLI packaging, launch-at-login UI/settings integration and real registration evidence, forced-quit semantics, and full cold-launch/repeated-launch/crash process coverage.
 
