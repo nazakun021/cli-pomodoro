@@ -601,6 +601,35 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
     }
 
     @objc private func quit() {
+        Task { @MainActor [weak self] in
+            guard let self, !isQuitting else { return }
+            let snapshot = await agent.snapshot()
+            if snapshot.agentState == .session {
+                let alert = NSAlert()
+                alert.messageText = "Quit Pomo?"
+                alert.informativeText =
+                    "The active Session will end and eligible partial Focus will be saved."
+                alert.addButton(withTitle: "Quit and Save Focus")
+                alert.addButton(withTitle: "Cancel")
+                guard alert.runModal() == .alertFirstButtonReturn else { return }
+                do {
+                    _ = try await agent.stopSession()
+                } catch AgentCommandError.noActiveSession {
+                } catch {
+                    let failure = NSAlert()
+                    failure.messageText = "Unable to Quit Safely"
+                    failure.informativeText =
+                        "Pomo could not save the active Focus. Resolve the issue before quitting."
+                    failure.addButton(withTitle: "OK")
+                    failure.runModal()
+                    return
+                }
+            }
+            finishQuit()
+        }
+    }
+
+    private func finishQuit() {
         isQuitting = true
         refreshGeneration += 1
         refreshTimer?.invalidate()

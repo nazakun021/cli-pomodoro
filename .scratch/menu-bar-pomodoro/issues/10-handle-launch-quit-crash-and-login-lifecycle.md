@@ -14,6 +14,8 @@
 - `pomo start` now probes the Agent and launches a packaged Pomo app when needed, with stale-socket recovery and bounded startup waiting. Launch-at-login uses `SMAppService.mainApp` with enabled, disabled, approval-pending, and failure feedback states.
 - Added `PomoAgent.app` metadata and a safe ad-hoc Hardened Runtime packaging helper using the ADR-approved `com.nazakun.pomo` identifier; strict codesign verification passed.
 - Validation: `swift build`, full `swift test` with 83 passing tests, lifecycle-focused tests, package verification, diagnostics, and `git diff --check` passed.
+- Active menu Quit now confirms before ending a Session, saves eligible partial Focus through the Agent, refuses shutdown when accounting fails, and tolerates a Session ending while the confirmation dialog is open. Deterministic lifecycle-marker tests cover one-time crash notices and clean exits.
+- Validation: `swift test --filter LifecycleTests` passed with 2 tests and 0 failures; final full-suite validation is recorded below.
 
 Remaining criteria: universal app/CLI packaging, launch-at-login UI/settings integration and real registration evidence, forced-quit semantics, and full cold-launch/repeated-launch/crash process coverage.
 
