@@ -405,6 +405,7 @@ private final class IdleStatusItem: NSObject {
         alert.informativeText = "Choose which completion cues Pomo may use."
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Open System Settings")
         let notifications = NSButton(checkboxWithTitle: "Notifications", target: nil, action: nil)
         notifications.state = preferences.notificationsEnabled ? .on : .off
         let sound = NSButton(checkboxWithTitle: "Sound", target: nil, action: nil)
@@ -414,7 +415,14 @@ private final class IdleStatusItem: NSObject {
         view.alignment = .leading
         view.spacing = 8
         alert.accessoryView = view
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let response = alert.runModal()
+        if response == .alertThirdButtonReturn {
+            if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings") {
+                NSWorkspace.shared.open(url)
+            }
+            return
+        }
+        guard response == .alertFirstButtonReturn else { return }
         alertPreferences.preferences = AlertPreferences(
             notificationsEnabled: notifications.state == .on,
             soundEnabled: sound.state == .on)
