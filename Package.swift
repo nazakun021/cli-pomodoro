@@ -6,13 +6,15 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [
         .library(name: "PomoCore", targets: ["PomoCore"]),
+        .library(name: "PomoAgentKit", targets: ["PomoAgentKit"]),
         .executable(name: "pomo", targets: ["PomoCLI"]),
         .executable(name: "PomoAgent", targets: ["PomoAgent"]),
     ],
     targets: [
         .target(name: "PomoCore", linkerSettings: [.linkedLibrary("sqlite3")]),
         .executableTarget(name: "PomoCLI", dependencies: ["PomoCore"]),
-        .executableTarget(name: "PomoAgent", dependencies: ["PomoCore"]),
+        .target(name: "PomoAgentKit", dependencies: ["PomoCore"]),
+        .executableTarget(name: "PomoAgent", dependencies: ["PomoAgentKit"]),
         .testTarget(name: "PomoCoreTests", dependencies: ["PomoCore"]),
     ]
 )

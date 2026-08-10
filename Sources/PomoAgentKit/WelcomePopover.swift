@@ -60,7 +60,9 @@ private final class WelcomeViewController: NSViewController {
         let title = NSTextField(labelWithString: "Welcome to Pomo")
         title.font = .boldSystemFont(ofSize: 16)
         let detail = NSTextField(
-            wrappingLabelWithString: "Pomo lives in the menu bar. Classic uses 25-minute Focus, 5-minute Short Break, and 15-minute Long Break phases.")
+            wrappingLabelWithString:
+                "Pomo lives in the menu bar. Classic uses 25-minute Focus, 5-minute Short Break, and 15-minute Long Break phases."
+        )
         detail.maximumNumberOfLines = 0
         detail.lineBreakMode = .byWordWrapping
         launchAtLogin.target = self
@@ -84,7 +86,7 @@ private final class WelcomeViewController: NSViewController {
             stack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             stack.topAnchor.constraint(equalTo: view.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
     }
 
