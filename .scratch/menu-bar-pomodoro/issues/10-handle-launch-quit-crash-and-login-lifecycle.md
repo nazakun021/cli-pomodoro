@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Start and stop a Classic Focus Session
 
-**Status:** claimed
+**Status:** ready-for-agent
 
 ## Validation evidence
 
@@ -31,3 +31,7 @@ Remaining criteria: universal app/CLI packaging, launch-at-login UI/settings int
 - [ ] The interruption marker contains only prior Agent identity, active-Session presence, and clean-exit metadata and is cleared after notice.
 - [ ] Process, real-socket, and CLI tests cover cold launch timeout, repeated launch, clean/forced quit, crash, relaunch, and one-time interruption reporting.
 - [ ] Manual login registration and clean/unclean lifecycle checks confirm expected behavior on supported macOS without modifying shell startup files.
+
+## Comments
+
+- 2026-08-11 audit: reset the stale claim to `ready-for-agent`; all acceptance criteria remain unchecked and the recorded remaining lifecycle/release work is substantial.

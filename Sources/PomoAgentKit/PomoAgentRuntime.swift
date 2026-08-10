@@ -24,7 +24,9 @@ public struct PomoAgent {
             "Pomo Agent must remain available for menu and CLI commands")
 
         let environment = ProcessInfo.processInfo.environment
-        if let testProfile = environment["POMO_TEST_PROFILE"] {
+        if environment["POMO_UI_TEST_MODE"] == "onboarding",
+            let testProfile = environment["POMO_TEST_PROFILE"]
+        {
             application.setActivationPolicy(.regular)
             let defaults = UserDefaults(suiteName: testProfile) ?? .standard
             let alertPreferences = AlertPreferencesStore(defaults: defaults)
@@ -43,6 +45,9 @@ public struct PomoAgent {
                 application.run()
             }
             return
+        }
+        if environment["POMO_TEST_PROFILE"] != nil {
+            application.setActivationPolicy(.regular)
         }
         let applicationSupportDirectory: URL
         if let testSupportDirectory = environment["POMO_TEST_SUPPORT_DIR"] {
@@ -79,7 +84,13 @@ public struct PomoAgent {
         lifecycleStore.markRunning(
             instanceID: snapshot.agentInstanceID ?? UUID(),
             hasActiveSession: snapshot.agentState == .session)
-        guard let socketPath = try? RuntimeEndpoint.prepare(),
+        let socketPath: String?
+        if environment["POMO_TEST_PROFILE"] != nil {
+            socketPath = try? RuntimeEndpoint.prepare(in: applicationSupportDirectory)
+        } else {
+            socketPath = try? RuntimeEndpoint.prepare()
+        }
+        guard let socketPath,
             let server = try? LocalAgentServer(path: socketPath, agent: agent)
         else {
             return
@@ -110,6 +121,44 @@ public struct PomoAgent {
     }
 }
 
+private final class MenuActionTarget: NSObject {
+    private let handler: @MainActor () -> Void
+
+    init(handler: @escaping @MainActor () -> Void) {
+        self.handler = handler
+    }
+
+    @objc func invokeMenuAction() {
+        let handler = handler
+        MainActor.assumeIsolated {
+            handler()
+        }
+    }
+}
+
+final class MainRunLoopDispatcher: NSObject, @unchecked Sendable {
+    private let lock = NSLock()
+    private var pendingAction: (@MainActor () -> Void)?
+
+    func dispatch(_ action: @escaping @MainActor () -> Void) {
+        lock.lock()
+        pendingAction = action
+        lock.unlock()
+        performSelector(onMainThread: #selector(runPendingAction), with: nil, waitUntilDone: false)
+    }
+
+    @objc private func runPendingAction() {
+        lock.lock()
+        let action = pendingAction
+        pendingAction = nil
+        lock.unlock()
+        guard let action else { return }
+        MainActor.assumeIsolated {
+            action()
+        }
+    }
+}
+
 @MainActor
 private final class IdleStatusItem: NSObject, NSMenuDelegate {
     private let agent: PomoAgentCore
@@ -118,8 +167,9 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
     private let lifecycleStore: AgentLifecycleStore
     private let priorInterruption: AgentLifecycleMarker?
     private let alertPreferences: AlertPreferencesStore
+    private let mainRunLoopDispatcher = MainRunLoopDispatcher()
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    private var refreshTimer: DispatchSourceTimer?
+    private var refreshTimer: Timer?
     private var sleepObserver: NSObjectProtocol?
     private var settingsWindow: PresetSettingsWindowController?
     private var customSessionPopover: CustomSessionPopoverController?
@@ -130,6 +180,9 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
     private var isQuitting = false
     private var missedAlert = false
     private var missedAlertGeneration = 0
+    private var isExplainingNotifications = false
+    private var menuActionTargets: [MenuActionTarget] = []
+    private var isMenuOpen = false
 
     init(
         agent: PomoAgentCore,
@@ -147,73 +200,90 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
         self.alertPreferences = alertPreferences
         missedAlert = alertPreferences.hasMissedAlert
         super.init()
-        item.length = 64
+        item.length = NSStatusItem.variableLength
         item.isVisible = true
-        item.button?.title = "Pomo"
+        item.button?.title = ""
+        item.button?.image = NSImage(
+            systemSymbolName: "target", accessibilityDescription: "Pomo Idle")
         let initialMenu = NSMenu()
-        initialMenu.addItem(withTitle: "No Session", action: nil, keyEquivalent: "")
-        let startItem = initialMenu.addItem(
-            withTitle: "Start Classic", action: #selector(startClassic), keyEquivalent: "")
-        startItem.target = self
+        addMenuAction(to: initialMenu, title: "Start Classic") { [weak self] in
+            self?.startClassic()
+        }
         initialMenu.addItem(.separator())
-        let presetsItem = initialMenu.addItem(
-            withTitle: "Presets...", action: #selector(openPresets), keyEquivalent: ",")
-        presetsItem.target = self
-        let alertsItem = initialMenu.addItem(
-            withTitle: "Alerts...", action: #selector(openAlerts), keyEquivalent: "")
-        alertsItem.target = self
-        let quitItem = initialMenu.addItem(
-            withTitle: "Quit Pomo", action: #selector(quit), keyEquivalent: "q")
-        quitItem.target = self
+        addMenuAction(to: initialMenu, title: "Presets...", keyEquivalent: ",") {
+            [weak self] in self?.openPresets()
+        }
+        addMenuAction(to: initialMenu, title: "Alerts...") { [weak self] in
+            self?.openAlerts()
+        }
+        addMenuAction(to: initialMenu, title: "Quit Pomo", keyEquivalent: "q") {
+            [weak self] in self?.quit()
+        }
         item.menu = initialMenu
         refresh()
         showInterruptionIfNeeded()
-        DispatchQueue.main.async { [weak self] in
+        mainRunLoopDispatcher.dispatch { [weak self] in
             self?.showWelcomeIfNeeded()
         }
         sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                _ = await self.agent.handleSleep()
-                self.refresh()
+            guard let self else { return }
+            let dispatcher = self.mainRunLoopDispatcher
+            Task.detached { [weak self, agent, dispatcher] in
+                _ = await agent.handleSleep()
+                dispatcher.dispatch { [weak self] in
+                    self?.refresh()
+                }
             }
         }
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + 1, repeating: 1)
-        timer.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.mainRunLoopDispatcher.dispatch { [weak self] in
                 self?.refresh()
             }
         }
-        timer.resume()
+        RunLoop.main.add(timer, forMode: .common)
         refreshTimer = timer
     }
 
     private func refresh() {
         refreshGeneration += 1
         let generation = refreshGeneration
-        Task { [weak self] in
-            guard let self else { return }
+        Task.detached { [weak self, agent] in
             let snapshot = await agent.advanceIfDue()
-            guard !isQuitting, generation == refreshGeneration else { return }
             let today = localDateString(Date())
             let summary = await agent.dailySummary(for: today)
-            if let instanceID = snapshot.agentInstanceID {
-                lifecycleStore.markRunning(
-                    instanceID: instanceID, hasActiveSession: snapshot.agentState == .session)
+            guard let self else { return }
+            self.mainRunLoopDispatcher.dispatch { [weak self] in
+                self?.applyRefresh(snapshot, summary: summary, generation: generation)
             }
-            if snapshot.agentState == .session {
-                requestNotificationAuthorizationIfNeeded()
-            }
-            deliverCompletionCue(from: previousSnapshot, to: snapshot)
-            previousSnapshot = snapshot
-            rebuildMenu(for: snapshot, summary: summary)
+        }
+    }
+
+    private func applyRefresh(
+        _ snapshot: AgentSnapshot,
+        summary: DailySummary,
+        generation: Int
+    ) {
+        guard !isQuitting, generation == refreshGeneration else { return }
+        if let instanceID = snapshot.agentInstanceID {
+            lifecycleStore.markRunning(
+                instanceID: instanceID, hasActiveSession: snapshot.agentState == .session)
+        }
+        guard !isMenuOpen else { return }
+        let priorSnapshot = previousSnapshot
+        deliverCompletionCue(from: priorSnapshot, to: snapshot)
+        previousSnapshot = snapshot
+        rebuildMenu(for: snapshot, summary: summary)
+        if snapshot.agentState == .session, priorSnapshot?.agentState != .session {
+            explainNotificationsIfNeeded()
+            requestNotificationAuthorizationIfNeeded()
         }
     }
 
     private func rebuildMenu(for snapshot: AgentSnapshot, summary: DailySummary) {
+        menuActionTargets.removeAll(keepingCapacity: true)
         let menu = NSMenu()
         if snapshot.agentState == .session {
             let phase = snapshot.phaseType == .focus ? "Focus" : "Break"
@@ -224,11 +294,10 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
             } else {
                 rounds = "Round \((snapshot.completedRounds ?? 0) + 1)"
             }
-            let nextPhase = snapshot.phaseType == .focus ? "Short Break" : "Focus"
             item.button?.image = NSImage(
                 systemSymbolName: missedAlert
                     ? "bell.badge"
-                    : (snapshot.phaseType == .focus ? "target" : "cup.and.saucer"),
+                    : statusSymbol(for: snapshot),
                 accessibilityDescription: missedAlert
                     ? "Pomo has a missed completion alert"
                     : "Pomo \(phase) \(state)")
@@ -237,59 +306,52 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
             menu.addItem(withTitle: rounds, action: nil, keyEquivalent: "")
             menu.addItem(.separator())
             if snapshot.sessionState == .running {
-                menu.addItem(withTitle: "Pause", action: #selector(pauseSession), keyEquivalent: "")
-                menu.items.last?.target = self
+                addMenuAction(to: menu, title: "Pause") { [weak self] in self?.pauseSession() }
             } else if snapshot.sessionState == .paused {
-                menu.addItem(
-                    withTitle: "Resume", action: #selector(resumeSession), keyEquivalent: "")
-                menu.items.last?.target = self
+                addMenuAction(to: menu, title: "Resume") { [weak self] in self?.resumeSession() }
             } else if snapshot.sessionState == .ready {
-                menu.addItem(
-                    withTitle: "Start", action: #selector(resumeSession), keyEquivalent: "")
-                menu.items.last?.target = self
+                addMenuAction(to: menu, title: "Start") { [weak self] in self?.resumeSession() }
             }
-            menu.addItem(withTitle: "Skip", action: #selector(skipPhase), keyEquivalent: "")
-            menu.items.last?.target = self
+            addMenuAction(to: menu, title: "Skip") { [weak self] in self?.skipPhase() }
+            addMenuAction(to: menu, title: "Stop Session") { [weak self] in
+                self?.confirmStop()
+            }
             menu.addItem(
-                withTitle: "Stop Session", action: #selector(confirmStop), keyEquivalent: "")
-            menu.items.last?.target = self
-            menu.addItem(withTitle: "Next: \(nextPhase)", action: nil, keyEquivalent: "")
+                withTitle: "Next: \(nextPhaseDescription(for: snapshot))",
+                action: nil,
+                keyEquivalent: "")
             addSummaryItem(to: menu, summary: summary)
         } else {
-            item.button?.title = "Pomo"
+            item.button?.title = ""
             item.button?.image = NSImage(
-                systemSymbolName: missedAlert ? "bell.badge" : "timer",
+                systemSymbolName: missedAlert ? "bell.badge" : "target",
                 accessibilityDescription: missedAlert
                     ? "Pomo has a missed completion alert"
                     : "Pomo Idle")
-            menu.addItem(withTitle: "No Session", action: nil, keyEquivalent: "")
-            addSummaryItem(to: menu, summary: summary)
             addQuickStartItems(to: menu)
+            addSummaryItem(to: menu, summary: summary)
         }
         if missedAlert {
-            menu.addItem(
-                withTitle: "Dismiss missed completion alert",
-                action: #selector(dismissMissedAlert),
-                keyEquivalent: "")
-            menu.items.last?.target = self
+            addMenuAction(to: menu, title: "Dismiss missed completion alert") { [weak self] in
+                self?.dismissMissedAlert()
+            }
         }
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Presets...", action: #selector(openPresets), keyEquivalent: ",")
-        menu.items.last?.target = self
-        menu.addItem(withTitle: "Alerts...", action: #selector(openAlerts), keyEquivalent: "")
-        menu.items.last?.target = self
-        let loginItem = menu.addItem(
-            withTitle: "Launch at Login",
-            action: #selector(toggleLaunchAtLogin(_:)),
-            keyEquivalent: "")
-        loginItem.target = self
+        addMenuAction(to: menu, title: "Presets...", keyEquivalent: ",") { [weak self] in
+            self?.openPresets()
+        }
+        addMenuAction(to: menu, title: "Alerts...") { [weak self] in self?.openAlerts() }
+        let loginItem = addMenuAction(to: menu, title: "Launch at Login") { [weak self] in
+            self?.toggleLaunchAtLogin()
+        }
         switch SMAppService.mainApp.status {
         case .enabled: loginItem.state = .on
         case .requiresApproval: loginItem.state = .mixed
         default: loginItem.state = .off
         }
-        menu.addItem(withTitle: "Quit Pomo", action: #selector(quit), keyEquivalent: "q")
-        menu.items.last?.target = self
+        addMenuAction(to: menu, title: "Quit Pomo", keyEquivalent: "q") { [weak self] in
+            self?.quit()
+        }
         menu.delegate = self
         item.menu = menu
     }
@@ -303,67 +365,118 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
             keyEquivalent: "")
     }
 
+    private func statusSymbol(for snapshot: AgentSnapshot) -> String {
+        switch snapshot.sessionState {
+        case .ready: return "play.circle"
+        case .paused: return "pause.circle"
+        case .running, .blocked, nil:
+            return snapshot.phaseType == .focus ? "target" : "cup.and.saucer"
+        }
+    }
+
+    private func nextPhaseDescription(for snapshot: AgentSnapshot) -> String {
+        guard let configuration = snapshot.configuration else { return "Unavailable" }
+        if snapshot.phaseType != .focus {
+            return "Focus (\(formatRemaining(configuration.focusSeconds)))"
+        }
+        let nextCompletedRound = (snapshot.completedRounds ?? 0) + 1
+        let isLongBreak = nextCompletedRound.isMultiple(of: configuration.longBreakEvery)
+        let name = isLongBreak ? "Long Break" : "Short Break"
+        let duration =
+            isLongBreak
+            ? configuration.longBreakSeconds : configuration.shortBreakSeconds
+        return "\(name) (\(formatRemaining(duration)))"
+    }
+
     fileprivate func showStatus() {
         item.button?.performClick(nil)
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        isMenuOpen = true
         guard missedAlert else { return }
         missedAlertGeneration += 1
         missedAlert = false
         alertPreferences.hasMissedAlert = false
     }
 
+    func menuDidClose(_ menu: NSMenu) {
+        isMenuOpen = false
+        refresh()
+    }
+
     @objc private func startClassic() {
-        explainNotificationsIfNeeded()
-        requestNotificationAuthorizationIfNeeded()
-        Task { [agent] in
+        let dispatcher = mainRunLoopDispatcher
+        Task.detached { [weak self, agent, dispatcher] in
             do {
                 let snapshot = try await agent.startClassic()
-                markLifecycle(for: snapshot)
+                dispatcher.dispatch { [weak self] in
+                    self?.sessionDidStart(snapshot)
+                    self?.refresh()
+                }
             } catch {
-                presentStartFailure(name: "Classic")
+                dispatcher.dispatch { [weak self] in
+                    self?.presentStartFailure(name: "Classic")
+                    self?.refresh()
+                }
             }
-            refresh()
         }
     }
 
     private func addQuickStartItems(to menu: NSMenu) {
         guard let defaultPreset = try? presetStore.defaultPreset() else {
-            menu.addItem(
-                withTitle: "Start Classic", action: #selector(startClassic), keyEquivalent: "")
-            menu.items.last?.target = self
+            addMenuAction(to: menu, title: "Start Classic") { [weak self] in
+                self?.startClassic()
+            }
             return
         }
         addStartPresetItem(defaultPreset, title: "Start \(defaultPreset.name)", to: menu)
         for preset in (try? presetStore.recentPresets()) ?? [] {
             addStartPresetItem(preset, title: preset.name, to: menu)
         }
-        menu.addItem(
-            withTitle: "Custom Session...", action: #selector(openCustomSession), keyEquivalent: "")
-        menu.items.last?.target = self
+        addMenuAction(to: menu, title: "Custom Session...") { [weak self] in
+            self?.openCustomSession()
+        }
+    }
+
+    @discardableResult
+    private func addMenuAction(
+        to menu: NSMenu,
+        title: String,
+        keyEquivalent: String = "",
+        handler: @escaping @MainActor () -> Void
+    ) -> NSMenuItem {
+        let target = MenuActionTarget(handler: handler)
+        menuActionTargets.append(target)
+        let menuItem = menu.addItem(
+            withTitle: title,
+            action: #selector(MenuActionTarget.invokeMenuAction),
+            keyEquivalent: keyEquivalent)
+        menuItem.target = target
+        return menuItem
     }
 
     private func addStartPresetItem(_ preset: Preset, title: String, to menu: NSMenu) {
-        let menuItem = menu.addItem(
-            withTitle: title, action: #selector(startPreset(_:)), keyEquivalent: "")
-        menuItem.target = self
-        menuItem.representedObject = preset.id.uuidString
+        addMenuAction(to: menu, title: title) { [weak self] in
+            self?.startPreset(id: preset.id, name: title)
+        }
     }
 
-    @objc private func startPreset(_ sender: NSMenuItem) {
-        guard let idValue = sender.representedObject as? String, let id = UUID(uuidString: idValue)
-        else { return }
-        explainNotificationsIfNeeded()
-        requestNotificationAuthorizationIfNeeded()
-        Task { [agent] in
+    private func startPreset(id: UUID, name: String) {
+        let dispatcher = mainRunLoopDispatcher
+        Task.detached { [weak self, agent, dispatcher] in
             do {
                 let snapshot = try await agent.start(presetID: id)
-                markLifecycle(for: snapshot)
+                dispatcher.dispatch { [weak self] in
+                    self?.sessionDidStart(snapshot)
+                    self?.refresh()
+                }
             } catch {
-                presentStartFailure(name: sender.title)
+                dispatcher.dispatch { [weak self] in
+                    self?.presentStartFailure(name: name)
+                    self?.refresh()
+                }
             }
-            refresh()
         }
     }
 
@@ -380,10 +493,6 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
             customSessionPopover = CustomSessionPopoverController(
                 agent: agent,
                 store: presetStore,
-                onStartRequested: {
-                    self.explainNotificationsIfNeeded()
-                    self.requestNotificationAuthorizationIfNeeded()
-                },
                 onStarted: { self.refresh() })
         }
         guard let button = item.button else { return }
@@ -396,6 +505,11 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
             instanceID: instanceID, hasActiveSession: snapshot.agentState == .session)
     }
 
+    private func sessionDidStart(_ snapshot: AgentSnapshot) {
+        markLifecycle(for: snapshot)
+        refresh()
+    }
+
     @objc private func confirmStop() {
         let alert = NSAlert()
         alert.messageText = "Stop Session?"
@@ -403,31 +517,72 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
         alert.addButton(withTitle: "Stop Session")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        Task { [agent] in
-            _ = try? await agent.stopSession()
-            refresh()
+        let dispatcher = mainRunLoopDispatcher
+        Task.detached { [weak self, agent, dispatcher] in
+            do {
+                _ = try await agent.stopSession()
+                dispatcher.dispatch { [weak self] in self?.refresh() }
+            } catch {
+                dispatcher.dispatch { [weak self] in
+                    self?.presentActionFailure("Stop Session")
+                    self?.refresh()
+                }
+            }
         }
     }
 
     @objc private func pauseSession() {
-        Task { [agent] in
-            _ = try? await agent.pauseSession()
-            refresh()
+        let dispatcher = mainRunLoopDispatcher
+        Task.detached { [weak self, agent, dispatcher] in
+            do {
+                _ = try await agent.pauseSession()
+                dispatcher.dispatch { [weak self] in self?.refresh() }
+            } catch {
+                dispatcher.dispatch { [weak self] in
+                    self?.presentActionFailure("Pause")
+                    self?.refresh()
+                }
+            }
         }
     }
 
     @objc private func resumeSession() {
-        Task { [agent] in
-            _ = try? await agent.resumeSession()
-            refresh()
+        let dispatcher = mainRunLoopDispatcher
+        Task.detached { [weak self, agent, dispatcher] in
+            do {
+                _ = try await agent.resumeSession()
+                dispatcher.dispatch { [weak self] in self?.refresh() }
+            } catch {
+                dispatcher.dispatch { [weak self] in
+                    self?.presentActionFailure("Resume")
+                    self?.refresh()
+                }
+            }
         }
     }
 
     @objc private func skipPhase() {
-        Task { [agent] in
-            _ = try? await agent.skipPhase()
-            refresh()
+        let dispatcher = mainRunLoopDispatcher
+        Task.detached { [weak self, agent, dispatcher] in
+            do {
+                _ = try await agent.skipPhase()
+                dispatcher.dispatch { [weak self] in self?.refresh() }
+            } catch {
+                dispatcher.dispatch { [weak self] in
+                    self?.presentActionFailure("Skip")
+                    self?.refresh()
+                }
+            }
         }
+    }
+
+    private func presentActionFailure(_ action: String) {
+        let alert = NSAlert()
+        alert.messageText = "Unable to \(action)"
+        alert.informativeText =
+            "Pomo could not complete this action. Reopen the menu and try again."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     private func requestNotificationAuthorizationIfNeeded() {
@@ -435,14 +590,21 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
         guard alertPreferences.preferences.notificationsEnabled else { return }
         guard !authorizationRequested else { return }
         authorizationRequested = true
+        let dispatcher = mainRunLoopDispatcher
         UNUserNotificationCenter.current().requestAuthorization(
-            options: [.alert, .sound]) { [weak self] _, _ in
-                Task { @MainActor in self?.refresh() }
+            options: [.alert, .sound]) { [weak self, dispatcher] _, _ in
+                dispatcher.dispatch { [weak self] in
+                    self?.refresh()
+                }
             }
     }
 
     private func explainNotificationsIfNeeded() {
         guard !alertPreferences.hasShownNotificationExplanation else { return }
+        guard !isExplainingNotifications else { return }
+        isExplainingNotifications = true
+        defer { isExplainingNotifications = false }
+        NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "Completion Alerts"
         alert.informativeText =
@@ -478,7 +640,7 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
                 authorization: authorization)
             {
             case .missed:
-                Task { @MainActor [weak self] in
+                self.mainRunLoopDispatcher.dispatch { [weak self] in
                     guard let self, generation == self.missedAlertGeneration else { return }
                     self.missedAlert = true
                     self.alertPreferences.hasMissedAlert = true
@@ -512,7 +674,7 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
                 trigger: nil)
             UNUserNotificationCenter.current().add(request) { [weak self] error in
                 guard error != nil else { return }
-                Task { @MainActor in
+                self?.mainRunLoopDispatcher.dispatch { [weak self] in
                     guard generation == self?.missedAlertGeneration else { return }
                     self?.missedAlert = true
                     self?.alertPreferences.hasMissedAlert = true
@@ -576,8 +738,9 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
             alert.runModal()
             return
         }
+        let dispatcher = mainRunLoopDispatcher
         UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in
-            Task { @MainActor [weak self] in
+            dispatcher.dispatch { [weak self] in
                 self?.presentAlerts(for: settings.authorizationStatus)
             }
         }
@@ -633,7 +796,7 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
         }
     }
 
-    @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
+    @objc private func toggleLaunchAtLogin() {
         do {
             let status = SMAppService.mainApp.status
             if status == .requiresApproval {
@@ -661,48 +824,67 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
     }
 
     @objc private func quit() {
-        Task { @MainActor [weak self] in
-            guard let self, !isQuitting else { return }
+        guard !isQuitting else { return }
+        let dispatcher = mainRunLoopDispatcher
+        Task.detached { [weak self, agent, dispatcher] in
             let snapshot = await agent.snapshot()
-            if snapshot.agentState == .session {
-                let alert = NSAlert()
-                alert.messageText = "Quit Pomo?"
-                alert.informativeText =
-                    "The active Session will end and eligible partial Focus will be saved."
-                alert.addButton(withTitle: "Quit and Save Focus")
-                alert.addButton(withTitle: "Cancel")
-                guard alert.runModal() == .alertFirstButtonReturn else { return }
-                do {
-                    _ = try await agent.stopSession()
-                } catch AgentCommandError.noActiveSession {
-                } catch {
+            dispatcher.dispatch { [weak self] in
+                self?.continueQuit(from: snapshot)
+            }
+        }
+    }
+
+    private func continueQuit(from snapshot: AgentSnapshot) {
+        guard !isQuitting else { return }
+        guard snapshot.agentState == .session else {
+            finishQuit()
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Quit Pomo?"
+        alert.informativeText =
+            "The active Session will end and eligible partial Focus will be saved."
+        alert.addButton(withTitle: "Quit and Save Focus")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let dispatcher = mainRunLoopDispatcher
+        Task.detached { [weak self, agent, dispatcher] in
+            do {
+                _ = try await agent.stopSession()
+                dispatcher.dispatch { [weak self] in self?.finishQuit() }
+            } catch AgentCommandError.noActiveSession {
+                dispatcher.dispatch { [weak self] in self?.finishQuit() }
+            } catch {
+                dispatcher.dispatch {
                     let failure = NSAlert()
                     failure.messageText = "Unable to Quit Safely"
                     failure.informativeText =
                         "Pomo could not save the active Focus. Resolve the issue before quitting."
                     failure.addButton(withTitle: "OK")
                     failure.runModal()
-                    return
                 }
             }
-            finishQuit()
         }
     }
 
     private func finishQuit() {
+        guard !isQuitting else { return }
         isQuitting = true
         refreshGeneration += 1
-        refreshTimer?.cancel()
+        refreshTimer?.invalidate()
         if let sleepObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(sleepObserver)
         }
-        Task { [agent, server, lifecycleStore] in
+        let dispatcher = mainRunLoopDispatcher
+        Task.detached { [agent, server, lifecycleStore, dispatcher] in
             let snapshot = await agent.snapshot()
             lifecycleStore.markCleanExit(
                 instanceID: snapshot.agentInstanceID ?? UUID(),
                 hasActiveSession: snapshot.agentState == .session)
             server.stop()
-            NSApp.terminate(nil)
+            dispatcher.dispatch {
+                NSApp.terminate(nil)
+            }
         }
     }
 

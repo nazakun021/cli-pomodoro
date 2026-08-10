@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — Run complete finite and open-ended Pomodoro cycles
 
-**Status:** claimed
+**Status:** ready-for-agent
 
 - [ ] Human Follow shows Phase/state, rounded time, progress, Rounds, next Phase, recent Transitions, and explicit separate CLI control hints.
 - [ ] Help and detach are the only dashboard actions; Control-C, q, or Escape detaches while the Session continues.
@@ -34,3 +34,7 @@
 - Validation: `swift build`, full `swift test` with 83 passing tests, diagnostics, and `git diff --check` passed.
 
 Remaining criteria: PTY coverage for keypresses and terminal restoration, durable transition history/backpressure behavior, and precise redraw/coalescing rules.
+
+## Comments
+
+- 2026-08-11 audit: reset the stale claim to `ready-for-agent`; the explicit remaining criteria prevent resolution.

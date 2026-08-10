@@ -46,8 +46,9 @@ final class PomoOnboardingUITests: XCTestCase {
     }
 
     private func launchAgent() -> XCUIApplication {
-        let app = XCUIApplication(bundleIdentifier: "com.nazakun.pomo")
+        let app = XCUIApplication()
         app.launchEnvironment["POMO_TEST_PROFILE"] = profile
+        app.launchEnvironment["POMO_UI_TEST_MODE"] = "onboarding"
         app.launchEnvironment["POMO_TEST_SUPPORT_DIR"] =
             FileManager.default.temporaryDirectory
             .appendingPathComponent(profile, isDirectory: true).path

@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — Run complete finite and open-ended Pomodoro cycles; 05 — Manage named Presets and the default
 
-**Status:** resolved
+**Status:** ready-for-agent
 
 - [ ] The Idle menu leads with the default Preset followed by up to three distinct most-recent non-default Presets, then Custom Session.
 - [ ] Accepted starts from menu, direct CLI, or later interactive setup update one monotonic Preset recency sequence transactionally before acknowledgment.
@@ -30,3 +30,4 @@
 ## Comments
 
 - 2026-08-10: Resolved after manual macOS verification. Screenshots capture the Presets window, active menu, Stop confirmation, Custom Session popover, and invalid-value feedback. Keyboard and VoiceOver verification were confirmed by the user.
+- 2026-08-11: Verification audit reopened this ticket. Every acceptance checkbox remains incomplete, and the only native UI test bypasses the status item and Session runtime; manual screenshots alone do not satisfy the ticket's required temporary-database, command/snapshot, and UI automation evidence.

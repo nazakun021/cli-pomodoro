@@ -4,17 +4,17 @@
 
 **Blocked by:** 01 — Observe an Idle Agent from CLI and menu
 
-**Status:** resolved
+**Status:** blocked
 
 - [x] Direct Start resolves the complete immutable Classic Session Configuration and acknowledges only after the Session is observable from CLI and menu.
 - [x] Classic starts a 25-minute Focus Phase with the contracted finite four-Round boundary, Break durations, cadence, and automatic-transition choices.
 - [x] Closing Terminal after Start leaves the Agent-owned Session running and controllable from the menu and later CLI invocations.
-- [x] Status-item and CLI snapshots agree on Session and Phase occurrence IDs, revision, Running state, configured duration, rounded remaining time, and expected Transition estimate.
+- [ ] Status-item and CLI snapshots agree on Session and Phase occurrence IDs, revision, Running state, configured duration, rounded remaining time, and expected Transition estimate.
 - [x] The active menu presents Phase/state, Round progress, Pause, Skip, confirmed Stop, next Phase, and status item formatting in the contracted order.
 - [x] Explicit CLI Stop ends the Session without prompting; menu Stop confirms partial-Focus impact before ending it; both return the Agent to Idle.
 - [x] A second Start is rejected unless explicit non-interactive replacement is requested, and an invalid replacement cannot disturb the current Session.
 - [x] Duplicate, expired, future-dated, and wrong-Agent mutation requests prove that Start and Stop cannot be applied twice.
-- [x] Automated command/snapshot, real socket, CLI subprocess, and native menu checks demonstrate one serialized Session across both surfaces.
+- [ ] Automated command/snapshot, real socket, CLI subprocess, and native menu checks demonstrate one serialized Session across both surfaces.
 
 ## Validation evidence
 
@@ -45,6 +45,12 @@
 
 ## Remaining gaps
 
-- This ticket remains `claimed`. The current architecture has no configurable Start payload, so it cannot prevalidate and reject an invalid replacement without changing the active Session.
-- Pause, Skip, and multi-phase transitions are not implemented in the Agent command/state-machine slice; the menu presents those controls but cannot execute them.
-- Automated CLI-subprocess and native-menu checks for one serialized Session across both surfaces are not present in the test target.
+- 2026-08-11 verification audit reopened this ticket: the existing native UI test launches an onboarding-only branch that returns before constructing the Agent, socket, or status item, so it cannot prove the menu acceptance criteria above.
+- The core command and socket tests remain useful evidence; XCUITest must still automate the now-live packaged workflow before this ticket can return to `resolved`.
+- Before the 2026-08-11 fix, native menu mutation failures were discarded for Pause, Resume, Skip, and Stop, making a rejected action appear to do nothing.
+- 2026-08-11 implementation: native Start now creates the Session before first-run notification onboarding can block, Custom Session follows the same ordering, and Pause/Resume/Skip/Stop failures are visible instead of discarded.
+- 2026-08-11 validation: `swift build` passed; 42 focused transition/IPC tests passed; the full Swift suite passed 93 tests; a signed packaged Agent and bundled CLI produced revisions `0` through `5` across Start, Pause, Resume, Skip, and Stop with the expected Focus-to-Short-Break transition.
+- Native UI suite: `xcodebuild test -project Pomo/Pomo.xcodeproj -scheme Pomo -destination 'platform=macOS,arch=arm64' -only-testing:PomoUITests` passed two onboarding tests, explicitly skipped the blocked real-menu workflow test, and reported zero failures.
+- 2026-08-11 live packaged menu evidence: icon-only Idle; Start produced Running revision `1`; Pause produced Paused revision `2`; Resume produced Running revision `3`; Skip produced a running Short Break at revision `4` with zero completed Rounds; confirmed Stop returned Idle at revision `5`. The menu updated from CLI mutations through the same Agent and displayed the documented adaptive controls.
+- Root cause fixed: manually running `NSApplication` blocked inherited MainActor tasks and main-queue dispatch timers. Menu mutations now run detached, AppKit UI delivery uses a main-run-loop dispatcher, periodic refresh uses a common-mode RunLoop timer, and menus are not rebuilt while AppKit tracks them.
+- Remaining blocker: the real-runtime XCUITest target creates isolated storage and an Agent endpoint, but Xcode 26.4 on macOS 26.5.2 times out before interaction and reports `Application 'com.nazakun.pomo' has not loaded accessibility`.

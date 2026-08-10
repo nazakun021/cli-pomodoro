@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Start and stop a Classic Focus Session
 
-**Status:** resolved
+**Status:** ready-for-agent
 
 - [x] Presets Settings lists Classic and user Presets and supports create, duplicate, edit, delete, and default selection with complete Configuration fields.
 - [x] User Preset names are unique under locale-independent case-insensitive comparison, and validation preserves pending form values.
@@ -14,7 +14,7 @@
 - [x] Editing or deleting a source Preset during an active Session does not alter that Session's immutable Configuration.
 - [x] Durable Presets, default selection, and protected Classic survive Agent restart with owner-only storage and one Agent writer.
 - [x] Repository and temporary-database tests verify physical constraints, protected-row triggers, rollback, default fallback, and case-insensitive uniqueness.
-- [x] Native UI automation verifies keyboard operation, read-only Classic behavior, confirmations, focus order, and VoiceOver labels in Presets Settings.
+- [ ] Native UI automation verifies keyboard operation, read-only Classic behavior, confirmations, focus order, and VoiceOver labels in Presets Settings.
 
 ## Validation evidence
 
@@ -33,3 +33,4 @@
 ## Comments
 
 - The durable repository, default-resolution, owner-only Agent-startup, recency coupling, native Settings UI, and manual accessibility verification are complete.
+- 2026-08-11 audit: reopened because manual verification was recorded, but the ticket explicitly requires native UI automation and no Presets Settings UI test exists.

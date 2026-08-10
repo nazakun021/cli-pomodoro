@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — Run complete finite and open-ended Pomodoro cycles; 05 — Manage named Presets and the default; 10 — Handle launch, quit, crash, and login lifecycle
 
-**Status:** resolved
+**Status:** ready-for-agent
 
 ## Validation evidence
 
@@ -16,6 +16,8 @@
 - Final validation: `swift build` passed; `swift test` passed with 73 tests and 0 failures; `git diff --check` passed.
 
 Known gaps: Summary Records are still JSON rather than the required SQLite/GRDB transactional schema; Recovery is not exposed through IPC; pause/resume date anchors, weekly/streak summaries, clear/reset behavior, and full restart/recovery coverage remain incomplete.
+
+2026-08-11 audit: reopened because every acceptance criterion remains unchecked and the known gaps contradict `resolved` status.
 
 - [ ] Natural Focus completion, skip, Stop, replacement, and forced Quit finalize positive elapsed Focus transactionally with stable Phase/segment identity.
 - [ ] Only natural Focus completion writes a completed-Round marker; Break interruption and zero-elapsed Focus write no contribution.

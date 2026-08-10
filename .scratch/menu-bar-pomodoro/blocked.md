@@ -1,6 +1,16 @@
 # Blockers
 
-## Resolved: Ticket 05 — Manage named Presets and the default
+## Ticket 02 — Native menu XCUITest cannot attach
+
+Date: 2026-08-11
+
+Attempted: Replaced the onboarding-only UI harness with isolated real Agent storage and runtime endpoints, added a status-item workflow test for Start, Pause, Resume, Skip, and confirmed Stop, and ran the focused test through `xcodebuild` with both automatic signing and signing disabled.
+
+Observed result: Pomo creates its isolated SQLite store and Agent lock/socket path, and the same signed app passes the full Start/Pause/Resume/Skip/Stop workflow through the live status menu. Xcode 26.4 on macOS 26.5.2 times out before menu interaction and reports `Application 'com.nazakun.pomo' has not loaded accessibility`. Core, socket, packaged-app, bundled-CLI, and live Accessibility validation pass.
+
+Required: Repair or replace the XCUITest launch/attachment setup, then pass the real status-item workflow test before resolving Ticket 02. Manual observation may supplement but does not replace this executable criterion.
+
+## Historical manual evidence: Ticket 05 — Manage named Presets and the default
 
 Date: 2026-08-10
 
@@ -10,7 +20,7 @@ Observed result: Keyboard focus order, delete confirmation presentation, and Voi
 
 Resolved: Manual verification on macOS confirmed Tab/Shift-Tab navigation, Classic read-only controls, user-Preset deletion confirmation, and VoiceOver announcements in the Presets Settings window.
 
-## Resolved: Ticket 06 — Quick-start and customize Sessions from the menu
+## Historical manual evidence: Ticket 06 — Quick-start and customize Sessions from the menu
 
 Date: 2026-08-10
 

@@ -4,6 +4,7 @@
 
 - [Live implementation roadmap](../.scratch/menu-bar-pomodoro/ROADMAP.md) — canonical milestone topology, blocker graph, and frontier rules.
 - [Roadmap pointer](implementation-roadmap.md) — stable `/docs` wayfinding for tools that begin here.
+- [Native menu runtime](native-menu-runtime.md) — implemented AppKit run-loop boundary, UI conformance, validation, and automation blocker.
 - [Domain documentation guidance](agents/domain.md) — how to consume the glossary and ADRs.
 - [Engineering workflow](agents/workflow.md) — planning, claiming, validation, blockers, and resolution.
 - [Local issue tracker](agents/issue-tracker.md) — `FEATURES.md`, `SPEC.md`, and ticket conventions.

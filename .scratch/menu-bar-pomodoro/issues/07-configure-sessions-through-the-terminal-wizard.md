@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — Run complete finite and open-ended Pomodoro cycles; 05 — Manage named Presets and the default
 
-**Status:** claimed
+**Status:** ready-for-agent
 
 - [ ] Bare Pomo requires TTY input and output, while non-TTY and JSON attempts fail promptly with explicit non-interactive alternatives.
 - [ ] The three-step Preset, Configure, and Review flow offers the default, recent, named, and custom choices and displays every effective Session Configuration value before Start.
@@ -41,3 +41,4 @@ Remaining criteria: signal/Control-C handling beyond EOF, full interactive key n
 ## Comments
 
 - 2026-08-10: The Preset discovery blocker is resolved by the Agent-owned `presets` IPC command and socket coverage. Ticket resumed.
+- 2026-08-11 audit: reset the stale claim to `ready-for-agent`; signal handling, full key navigation, resize recovery, restoration snapshots, and comprehensive pseudo-terminal coverage remain unfinished.

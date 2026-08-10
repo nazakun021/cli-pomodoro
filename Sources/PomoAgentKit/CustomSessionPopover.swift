@@ -9,7 +9,6 @@ final class CustomSessionPopoverController {
     init(
         agent: PomoAgentCore,
         store: PresetStore,
-        onStartRequested: @escaping @MainActor () -> Void,
         onStarted: @escaping @MainActor () -> Void
     ) {
         popover.behavior = .transient
@@ -18,7 +17,6 @@ final class CustomSessionPopoverController {
             rootView: CustomSessionView(
                 agent: agent,
                 store: store,
-                onStartRequested: onStartRequested,
                 onStarted: onStarted))
     }
 
@@ -31,8 +29,8 @@ final class CustomSessionPopoverController {
 private final class CustomSessionModel: ObservableObject {
     private let agent: PomoAgentCore
     private let store: PresetStore
-    private let onStartRequested: @MainActor () -> Void
     private let onStarted: @MainActor () -> Void
+    private let mainRunLoopDispatcher = MainRunLoopDispatcher()
 
     @Published var presets: [Preset] = []
     @Published var selectedPresetID: UUID?
@@ -50,12 +48,10 @@ private final class CustomSessionModel: ObservableObject {
     init(
         agent: PomoAgentCore,
         store: PresetStore,
-        onStartRequested: @escaping @MainActor () -> Void,
         onStarted: @escaping @MainActor () -> Void
     ) {
         self.agent = agent
         self.store = store
-        self.onStartRequested = onStartRequested
         self.onStarted = onStarted
         reloadPresets()
     }
@@ -87,14 +83,20 @@ private final class CustomSessionModel: ObservableObject {
     func startOnce() {
         do {
             let configuration = try configuration()
-            onStartRequested()
-            Task {
+            let sourcePresetID = selectedPresetID
+            let dispatcher = mainRunLoopDispatcher
+            Task.detached { [weak self, agent, dispatcher] in
                 do {
                     _ = try await agent.start(
-                        configuration: configuration, sourcePresetID: selectedPresetID)
-                    onStarted()
+                        configuration: configuration, sourcePresetID: sourcePresetID)
+                    dispatcher.dispatch { [weak self] in
+                        self?.onStarted()
+                    }
                 } catch {
-                    message = "An active Session must be stopped before starting another."
+                    dispatcher.dispatch { [weak self] in
+                        self?.message =
+                            "An active Session must be stopped before starting another."
+                    }
                 }
             }
         } catch {
@@ -128,14 +130,12 @@ private struct CustomSessionView: View {
     init(
         agent: PomoAgentCore,
         store: PresetStore,
-        onStartRequested: @escaping @MainActor () -> Void,
         onStarted: @escaping @MainActor () -> Void
     ) {
         _model = StateObject(
             wrappedValue: CustomSessionModel(
                 agent: agent,
                 store: store,
-                onStartRequested: onStartRequested,
                 onStarted: onStarted))
     }
 
