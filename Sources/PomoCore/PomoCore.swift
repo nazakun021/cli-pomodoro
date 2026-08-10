@@ -1733,6 +1733,10 @@ public struct LocalAgentClient: Sendable {
         }
 
         return AsyncThrowingStream { continuation in
+            continuation.onTermination = { _ in
+                Darwin.shutdown(descriptor, SHUT_RDWR)
+                Darwin.close(descriptor)
+            }
             Task {
                 do {
                     while true {
@@ -1742,7 +1746,6 @@ public struct LocalAgentClient: Sendable {
                     }
                 } catch {
                     continuation.finish(throwing: error)
-                    Darwin.close(descriptor)
                 }
             }
         }

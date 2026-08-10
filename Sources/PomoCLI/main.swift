@@ -83,44 +83,98 @@ struct PomoCLI {
         do {
             let events = try await LocalAgentClient(path: RuntimeEndpoint.socketPath())
                 .followEvents()
+            if !json {
+                await followHuman(events)
+                return
+            }
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
             for try await event in events {
-                if json {
-                    FileHandle.standardOutput.write(try encoder.encode(event))
-                    FileHandle.standardOutput.write(Data("\n".utf8))
-                } else if let snapshot = event.snapshot {
-                    let phase =
-                        snapshot.phaseType?.rawValue
-                        .replacingOccurrences(of: "_", with: " ") ?? "idle"
-                    let state = snapshot.sessionState?.rawValue ?? snapshot.agentState.rawValue
-                    let remaining = snapshot.remainingSeconds.map(String.init) ?? "-"
-                    let rounds = snapshot.completedRounds.map(String.init) ?? "-"
-                    let next: String
-                    if snapshot.agentState != .session {
-                        next = "-"
-                    } else if snapshot.phaseType == .focus,
-                        let target = snapshot.configuration?.targetRounds,
-                        let completed = snapshot.completedRounds,
-                        completed + 1 >= target
-                    {
-                        next = "End Session"
-                    } else {
-                        next = snapshot.phaseType == .focus ? "Short Break" : "Focus"
-                    }
-                    print(
-                        "Follow #\(event.sequence): \(phase) - \(state), \(remaining)s remaining, rounds \(rounds), next \(next)."
-                    )
-                    if event.sequence == 0 {
-                        print(
-                            "Controls: use `pomo pause`, `pomo resume`, `pomo skip`, or `pomo stop` in another terminal."
-                        )
-                    }
-                }
+                FileHandle.standardOutput.write(try encoder.encode(event))
+                FileHandle.standardOutput.write(Data("\n".utf8))
             }
         } catch {
             FileHandle.standardError.write(Data("Pomo Agent is unavailable.\n".utf8))
             Foundation.exit(4)
+        }
+    }
+
+    private static func followHuman(
+        _ events: AsyncThrowingStream<FollowEvent, Error>
+    ) async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                do {
+                    for try await event in events {
+                        guard let snapshot = event.snapshot else { continue }
+                        let phase =
+                            snapshot.phaseType?.rawValue
+                            .replacingOccurrences(of: "_", with: " ") ?? "idle"
+                        let state = snapshot.sessionState?.rawValue ?? snapshot.agentState.rawValue
+                        let remaining = snapshot.remainingSeconds.map(String.init) ?? "-"
+                        let rounds = snapshot.completedRounds.map(String.init) ?? "-"
+                        let next: String
+                        if snapshot.agentState != .session {
+                            next = "-"
+                        } else if snapshot.phaseType == .focus,
+                            let target = snapshot.configuration?.targetRounds,
+                            let completed = snapshot.completedRounds,
+                            completed + 1 >= target
+                        {
+                            next = "End Session"
+                        } else {
+                            next = snapshot.phaseType == .focus ? "Short Break" : "Focus"
+                        }
+                        print(
+                            "Follow #\(event.sequence): \(phase) - \(state), \(remaining)s remaining, rounds \(rounds), next \(next)."
+                        )
+                        if event.sequence == 0 {
+                            print(
+                                "Controls: use `pomo pause`, `pomo resume`, `pomo skip`, or `pomo stop` in another terminal."
+                            )
+                        }
+                    }
+                } catch is CancellationError {
+                } catch {
+                    FileHandle.standardError.write(
+                        Data("Pomo Agent is unavailable.\n".utf8))
+                    Foundation.exit(4)
+                }
+            }
+            group.addTask {
+                await waitForFollowExitKey()
+            }
+            await group.next()
+            group.cancelAll()
+        }
+    }
+
+    private static func waitForFollowExitKey() async {
+        guard isatty(STDIN_FILENO) != 0 else {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+            }
+            return
+        }
+        var terminal = termios()
+        guard tcgetattr(STDIN_FILENO, &terminal) == 0 else { return }
+        let original = terminal
+        terminal.c_lflag &= ~(UInt(ECHO) | UInt(ICANON) | UInt(ISIG))
+        terminal.c_cc.0 = 0
+        terminal.c_cc.1 = 0
+        guard tcsetattr(STDIN_FILENO, TCSANOW, &terminal) == 0 else { return }
+        defer {
+            var restored = original
+            _ = tcsetattr(STDIN_FILENO, TCSANOW, &restored)
+        }
+
+        var byte: UInt8 = 0
+        while !Task.isCancelled {
+            var descriptor = pollfd(fd: STDIN_FILENO, events: Int16(POLLIN), revents: 0)
+            guard poll(&descriptor, 1, 100) >= 0 else { return }
+            guard descriptor.revents & Int16(POLLIN) != 0 else { continue }
+            guard read(STDIN_FILENO, &byte, 1) == 1 else { return }
+            if byte == 3 || byte == 27 || byte == 113 || byte == 81 { return }
         }
     }
 
