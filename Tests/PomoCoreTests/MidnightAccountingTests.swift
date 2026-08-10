@@ -24,10 +24,10 @@ final class MidnightAccountingTests: XCTestCase {
 
         XCTAssertEqual(
             store.summary(for: dateString(start)),
-            DailySummary(focusMilliseconds: 1_000, completedRounds: 0))
+            DailySummary(focusMilliseconds: 1_000, completedRounds: 0, currentStreak: 0))
         XCTAssertEqual(
             store.summary(for: dateString(start.addingTimeInterval(3))),
-            DailySummary(focusMilliseconds: 2_000, completedRounds: 1))
+            DailySummary(focusMilliseconds: 2_000, completedRounds: 1, currentStreak: 1))
     }
 }
 

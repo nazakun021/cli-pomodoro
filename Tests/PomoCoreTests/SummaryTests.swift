@@ -18,11 +18,11 @@ final class SummaryTests: XCTestCase {
 
         XCTAssertEqual(
             store.summary(for: "2026-08-10"),
-            DailySummary(focusMilliseconds: 90_001, completedRounds: 1))
+            DailySummary(focusMilliseconds: 90_001, completedRounds: 1, currentStreak: 1))
         let reloaded = try SummaryStore(fileURL: url)
         XCTAssertEqual(
             reloaded.summary(for: "2026-08-10"),
-            DailySummary(focusMilliseconds: 90_001, completedRounds: 1))
+            DailySummary(focusMilliseconds: 90_001, completedRounds: 1, currentStreak: 1))
     }
 
     func testSummaryStoreKeepsSplitContributionsForOnePhase() throws {
@@ -44,6 +44,15 @@ final class SummaryTests: XCTestCase {
         XCTAssertEqual(store.summary(for: "2026-08-10").focusMilliseconds, 1_000)
         XCTAssertEqual(
             store.summary(for: "2026-08-11"),
-            DailySummary(focusMilliseconds: 2_000, completedRounds: 1))
+            DailySummary(focusMilliseconds: 2_000, completedRounds: 1, currentStreak: 1))
+    }
+
+    func testSummaryUsesHonestCompactFocusFormatting() {
+        XCTAssertEqual(
+            DailySummary(focusMilliseconds: 59_999, completedRounds: 0).compactFocusText,
+            "<1m")
+        XCTAssertEqual(
+            DailySummary(focusMilliseconds: 119_999, completedRounds: 0).compactFocusText,
+            "1m")
     }
 }

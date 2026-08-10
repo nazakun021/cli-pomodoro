@@ -4,13 +4,16 @@
 
 **Blocked by:** 04 — Run complete finite and open-ended Pomodoro cycles; 05 — Manage named Presets and the default; 10 — Handle launch, quit, crash, and login lifecycle
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## Validation evidence
 
 - Implemented and tested a durable `SummaryStore` with idempotent `(phaseID, local date)` contributions, natural Focus completion, interrupted Focus accounting for Stop and Skip, and local-midnight splitting with the completion marker on the final segment.
 - Production Agent construction injects the summary store, and deterministic tests cover natural completion, Stop, Skip, replacement accounting, persistence reload, duplicate replay, split contributions, and wall-clock rollback handling.
 - Current validation: `swift build` passed and the full Swift suite passed with 83 tests and 0 failures.
+- Added current-streak calculation and honest compact Focus presentation (`<1m` or floored minutes), and wired today’s Focus, Rounds, and streak summary into the native status menu for Idle and active Sessions.
+- Focused validation: `swift test --filter SummaryTests` passed with 3 tests and 0 failures.
+- Final validation: `swift build` passed; `swift test` passed with 73 tests and 0 failures; `git diff --check` passed.
 
 Known gaps: Summary Records are still JSON rather than the required SQLite/GRDB transactional schema; Recovery is not exposed through IPC; pause/resume date anchors, weekly/streak summaries, clear/reset behavior, and full restart/recovery coverage remain incomplete.
 

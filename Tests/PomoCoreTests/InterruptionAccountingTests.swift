@@ -21,7 +21,7 @@ final class InterruptionAccountingTests: XCTestCase {
 
         XCTAssertEqual(
             store.summary(for: "1970-01-01"),
-            DailySummary(focusMilliseconds: 3_000, completedRounds: 0))
+            DailySummary(focusMilliseconds: 3_000, completedRounds: 0, currentStreak: 0))
     }
 
     func testSkippingFocusRecordsElapsedTimeWithoutCompletedRound() async throws {
@@ -42,7 +42,7 @@ final class InterruptionAccountingTests: XCTestCase {
 
         XCTAssertEqual(
             store.summary(for: "1970-01-01"),
-            DailySummary(focusMilliseconds: 4_000, completedRounds: 0))
+            DailySummary(focusMilliseconds: 4_000, completedRounds: 0, currentStreak: 0))
     }
 }
 

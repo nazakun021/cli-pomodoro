@@ -21,7 +21,7 @@ final class AccountingTests: XCTestCase {
 
         XCTAssertEqual(
             store.summary(for: "1970-01-01"),
-            DailySummary(focusMilliseconds: 1_000, completedRounds: 1))
+            DailySummary(focusMilliseconds: 1_000, completedRounds: 1, currentStreak: 1))
     }
 }
 

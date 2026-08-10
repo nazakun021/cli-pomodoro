@@ -3,6 +3,14 @@ import PomoCore
 import ServiceManagement
 @preconcurrency import UserNotifications
 
+private func localDateString(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar.current
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter.string(from: date)
+}
+
 public struct PomoAgent {
     @MainActor
     public static func main() async {
@@ -155,6 +163,8 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
             guard let self else { return }
             let snapshot = await agent.advanceIfDue()
             guard !isQuitting, generation == refreshGeneration else { return }
+            let today = localDateString(Date())
+            let summary = await agent.dailySummary(for: today)
             if let instanceID = snapshot.agentInstanceID {
                 lifecycleStore.markRunning(
                     instanceID: instanceID, hasActiveSession: snapshot.agentState == .session)
@@ -164,11 +174,11 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
             }
             deliverCompletionCue(from: previousSnapshot, to: snapshot)
             previousSnapshot = snapshot
-            rebuildMenu(for: snapshot)
+            rebuildMenu(for: snapshot, summary: summary)
         }
     }
 
-    private func rebuildMenu(for snapshot: AgentSnapshot) {
+    private func rebuildMenu(for snapshot: AgentSnapshot, summary: DailySummary) {
         let menu = NSMenu()
         if snapshot.agentState == .session {
             let phase = snapshot.phaseType == .focus ? "Focus" : "Break"
@@ -209,6 +219,7 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
                 withTitle: "Stop Session", action: #selector(confirmStop), keyEquivalent: "")
             menu.items.last?.target = self
             menu.addItem(withTitle: "Next: \(nextPhase)", action: nil, keyEquivalent: "")
+            addSummaryItem(to: menu, summary: summary)
         } else {
             item.button?.title = ""
             item.button?.image = NSImage(
@@ -217,6 +228,7 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
                     ? "Pomo has a missed completion alert"
                     : "Pomo Idle")
             menu.addItem(withTitle: "No Session", action: nil, keyEquivalent: "")
+            addSummaryItem(to: menu, summary: summary)
             addQuickStartItems(to: menu)
         }
         if missedAlert {
@@ -245,6 +257,14 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
         menu.items.last?.target = self
         menu.delegate = self
         item.menu = menu
+    }
+
+    private func addSummaryItem(to menu: NSMenu, summary: DailySummary) {
+        menu.addItem(
+            withTitle: "Today: \(summary.compactFocusText) Focus, \(summary.completedRounds) Rounds, "
+                + "\(summary.currentStreak)-day streak",
+            action: nil,
+            keyEquivalent: "")
     }
 
     fileprivate func showStatus() {

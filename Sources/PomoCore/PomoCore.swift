@@ -181,10 +181,18 @@ public struct FocusContribution: Codable, Equatable, Sendable {
 public struct DailySummary: Codable, Equatable, Sendable {
     public let focusMilliseconds: Int64
     public let completedRounds: Int
+    public let currentStreak: Int
 
-    public init(focusMilliseconds: Int64, completedRounds: Int) {
+    public init(focusMilliseconds: Int64, completedRounds: Int, currentStreak: Int = 0) {
         self.focusMilliseconds = focusMilliseconds
         self.completedRounds = completedRounds
+        self.currentStreak = currentStreak
+    }
+
+    public var compactFocusText: String {
+        guard focusMilliseconds > 0 else { return "0m" }
+        let minutes = focusMilliseconds / 60_000
+        return minutes > 0 ? "\(minutes)m" : "<1m"
     }
 }
 
@@ -252,7 +260,28 @@ public final class SummaryStore: @unchecked Sendable {
         let matching = state.contributions.filter { $0.date == date }
         return DailySummary(
             focusMilliseconds: matching.reduce(0) { $0 + $1.elapsedMilliseconds },
-            completedRounds: matching.reduce(0) { $0 + ($1.completedRound ? 1 : 0) })
+            completedRounds: matching.reduce(0) { $0 + ($1.completedRound ? 1 : 0) },
+            currentStreak: currentStreak(endingAt: date))
+    }
+
+    private func currentStreak(endingAt date: String) -> Int {
+        let completedDates = Set(
+            state.contributions.filter(\.completedRound).map(\.date))
+        guard var cursor = dateFromLocalDate(date) else { return 0 }
+        if !completedDates.contains(date) {
+            guard let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: cursor),
+                completedDates.contains(localDateString(yesterday))
+            else { return 0 }
+            cursor = yesterday
+        }
+        var streak = 0
+        while completedDates.contains(localDateString(cursor)) {
+            streak += 1
+            guard let previous = Calendar.current.date(byAdding: .day, value: -1, to: cursor)
+            else { break }
+            cursor = previous
+        }
+        return streak
     }
 
     private func persist() throws {
@@ -264,6 +293,14 @@ public final class SummaryStore: @unchecked Sendable {
             throw SummaryStoreError.invalidStorage
         }
     }
+}
+
+private func dateFromLocalDate(_ value: String) -> Date? {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar.current
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter.date(from: value)
 }
 
 public enum PresetStoreError: Error, Equatable, Sendable {

@@ -263,7 +263,9 @@ struct PomoCLI {
         let replace: Bool
         if status.data?.agentState == .session {
             print("An active Session will be replaced. Continue? [y/N]", terminator: " ")
-            guard let answer = readLine()?.lowercased(), answer == "y" || answer == "yes" else {
+            guard let answer = readLine()?.lowercased(),
+                answer == "y" || answer == "yes"
+            else {
                 print("Setup cancelled.")
                 return
             }
@@ -272,7 +274,9 @@ struct PomoCLI {
             replace = false
         }
         print("Start this Session? [y/N]", terminator: " ")
-        guard let answer = readLine()?.lowercased(), answer == "y" || answer == "yes" else {
+        guard let answer = readLine()?.lowercased(),
+            answer == "y" || answer == "yes"
+        else {
             print("Setup cancelled.")
             return
         }
@@ -412,11 +416,13 @@ struct PomoCLI {
             URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
                 .appendingPathComponent(".build/arm64-apple-macosx/release/Pomo.app").path,
             URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-                .appendingPathComponent(".build/x86_64-apple-macosx/release/Pomo.app").path
+                .appendingPathComponent(".build/x86_64-apple-macosx/release/Pomo.app").path,
         ]
-        guard let appPath = candidates.first(where: {
-            FileManager.default.fileExists(atPath: $0)
-        }) else { return }
+        guard
+            let appPath = candidates.first(where: {
+                FileManager.default.fileExists(atPath: $0)
+            })
+        else { return }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = ["-a", appPath, "--background"]
