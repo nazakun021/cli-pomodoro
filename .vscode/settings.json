@@ -1,0 +1,21 @@
+{
+  "files.exclude": {
+    "**/.build": true,
+    "**/.swiftpm": true,
+    "**/DerivedData": true,
+    "**/default.profraw": true,
+    "**/repomix-output.xml": true
+  },
+  "search.exclude": {
+    "**/.build": true,
+    "**/.swiftpm": true,
+    "**/DerivedData": true
+  },
+  "swift.languageServerPath": "",
+  "swift.buildArguments": ["--configuration", "debug"],
+  "swift.testArguments": ["--parallel"],
+  "terminal.integrated.cwd": "${workspaceFolder}",
+  "editor.rulers": [100],
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true
+}

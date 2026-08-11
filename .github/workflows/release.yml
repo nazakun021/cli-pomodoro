@@ -1,0 +1,72 @@
+name: Release Pomo
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Validate version tag
+        id: version
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag must be vMAJOR.MINOR.PATCH" >&2
+            exit 2
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Run Swift tests
+        run: swift test
+
+      - name: Build universal app
+        env:
+          POMO_ARCHES: arm64 x86_64
+          POMO_VERSION: ${{ steps.version.outputs.version }}
+        run: Scripts/package-agent-app.sh release .build/release/Pomo-universal.app
+
+      - name: Build Apple Silicon app
+        env:
+          POMO_ARCHES: arm64
+          POMO_VERSION: ${{ steps.version.outputs.version }}
+        run: Scripts/package-agent-app.sh release .build/release/Pomo-arm64.app
+
+      - name: Verify app bundles
+        run: |
+          codesign --verify --deep --strict .build/release/Pomo-universal.app
+          codesign --verify --deep --strict .build/release/Pomo-arm64.app
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' .build/release/Pomo-universal.app/Contents/Info.plist)" = "${{ steps.version.outputs.version }}"
+          lipo -archs .build/release/Pomo-universal.app/Contents/MacOS/PomoAgent
+          lipo -archs .build/release/Pomo-universal.app/Contents/Resources/pomo
+
+      - name: Assemble release assets
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent .build/release/Pomo-universal.app "dist/Pomo-macos-universal.zip"
+          ditto -c -k --sequesterRsrc --keepParent .build/release/Pomo-arm64.app "dist/Pomo-macos-arm64.zip"
+          cp .build/arm64-apple-macosx/release/pomo dist/pomo-macos-arm64
+          cp Scripts/install-pomo-macos-arm64.sh dist/install-pomo-macos-arm64.sh
+          chmod 755 dist/pomo-macos-arm64 dist/install-pomo-macos-arm64.sh
+          shasum -a 256 dist/* > dist/SHA256SUMS
+          printf '%s\n' "$VERSION" > dist/VERSION
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "Pomo v$VERSION" \
+            --generate-notes

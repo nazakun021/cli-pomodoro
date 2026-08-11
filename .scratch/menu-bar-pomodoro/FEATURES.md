@@ -36,7 +36,7 @@ Technical macOS users can start and control a Pomodoro session with `pomo` or th
 
 ### Starting a session
 
-- Running `pomo` without arguments opens an interactive setup flow.
+- Running `pomo` without arguments activates or attaches to the packaged Agent, then offers interactive CLI setup or a handoff to the menu bar.
 - Interactive setup selects the default, a recent, or another named preset; reviews its key values; allows overrides; and then starts.
 - A user can bypass prompts with `pomo start 25m` or `pomo start --preset NAME`.
 - Flexible durations accept values such as `25m`, `90s`, or `1h`.

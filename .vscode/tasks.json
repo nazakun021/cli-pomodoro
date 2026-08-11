@@ -1,0 +1,39 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Swift build",
+			"type": "shell",
+			"command": "swift",
+			"args": [
+				"build"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Swift test",
+			"type": "shell",
+			"command": "swift",
+			"args": ["test"],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Package arm64 app",
+			"type": "shell",
+			"command": "POMO_ARCHES=arm64 POMO_VERSION=0.1.0 Scripts/package-agent-app.sh debug /tmp/Pomo-debug.app",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Validate release files",
+			"type": "shell",
+			"command": "git diff --check && sh -n Scripts/package-agent-app.sh && sh -n Scripts/install-pomo-macos-arm64.sh",
+			"isBackground": false,
+			"problemMatcher": []
+		}
+	]
+}

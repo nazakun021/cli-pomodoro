@@ -24,7 +24,7 @@ The product is delivered as one universal native app bundle containing the match
 
 ## User Stories
 
-1. As a terminal-first user I want to start Pomo interactively with a bare command, so that I can configure a Session without memorizing flags.
+1. As a terminal-first user I want to activate Pomo interactively with a bare command, then choose CLI or menu-bar setup, so that I can configure a Session without memorizing flags.
 2. As a terminal-first user I want the interactive setup to require a TTY, so that unattended processes never hang waiting for input.
 3. As a terminal-first user I want non-TTY interactive attempts to show explicit alternatives, so that I can switch to an automatable command.
 4. As a terminal-first user I want a plain line-oriented setup mode, so that I can work in terminals that cannot safely render an alternate screen.

@@ -10,7 +10,7 @@ This document defines the first-release public command and automation contract. 
 - Human-readable output is the default.
 - Global `--json` requests machine-readable output from every command.
 - Bare `pomo --json` is a usage error; interactive setup is available only in human TTY mode.
-- Bare `pomo` requires TTY stdin and stdout. Non-TTY use is a usage error with explicit `pomo start` and JSON examples.
+- Bare `pomo` requires TTY stdin and stdout. It first activates or attaches to the packaged Agent, then offers CLI setup or a handoff to the menu bar. Non-TTY use is a usage error with explicit `pomo start` and JSON examples.
 - Global `--plain` selects line-oriented prompts/output without cursor movement, alternate screen, or live redraw.
 - Human errors go to standard error. JSON mode writes one parseable envelope to standard output even on failure, except that `follow --json` and `start --follow --json` write NDJSON streams.
 - Durations are positive, composable integer units from 1 second through 24 hours, such as `90s`, `25m`, and `1h30m`. Zero, negative, fractional, unitless, malformed, and over-24-hour values are usage errors.
@@ -23,7 +23,7 @@ This document defines the first-release public command and automation contract. 
 
 ### `pomo`
 
-Open interactive setup: choose the default, a recent, or another named Preset; review and optionally override values; then start.
+Open interactive setup: `pomo` activates the Agent, then choose CLI setup or continue in the menu bar. CLI setup chooses the default, a recent, or another named Preset; reviews and optionally overrides values; then starts.
 
 Default TTY mode uses the three-step alternate-screen wizard in `tui-design.md`. `--plain` uses equivalent numbered, line-oriented prompts.
 

@@ -43,9 +43,17 @@ CI treats Swift compiler warnings and strict-concurrency diagnostics as errors. 
 GitHub release files:
 
 - `Pomo-vMAJOR.MINOR.PATCH-macos-universal.zip`
+- `Pomo-macos-arm64.zip`
+- `pomo-macos-arm64`
+- `install-pomo-macos-arm64.sh`
 - `SHA256SUMS`
 
-The archive contains one `Pomo.app`. Its bundled CLI and completions are exposed by the cask. Build both `arm64` and `x86_64` slices, combine/verify universal Mach-O files, sign nested executable code before the app, then ad-hoc sign with Hardened Runtime.
+The universal and arm64 archives each contain one `Pomo.app`; its bundled CLI is
+installed into `~/.local/bin/pomo` by the arm64 installer. The raw CLI asset is
+for automation only and does not include the menu-bar Agent. Build both `arm64`
+and `x86_64` slices for the universal archive, combine/verify universal Mach-O
+files, sign nested executable code before the app, then ad-hoc sign with
+Hardened Runtime.
 
 Required checks include:
 

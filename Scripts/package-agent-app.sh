@@ -5,6 +5,11 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 CONFIG=${1:-release}
 OUTPUT=${2:-"$ROOT/.build/$CONFIG/Pomo.app"}
 ARCHES=${POMO_ARCHES:-arm64}
+VERSION=${POMO_VERSION:-0.1.0}
+
+case "$VERSION" in
+	*[^0-9.]*|.*|*..*|"" ) printf '%s\n' "POMO_VERSION must be a dotted numeric version" >&2; exit 2 ;;
+esac
 
 case "$ROOT" in
 	*" "*) printf '%s\n' "Repository paths containing spaces are unsupported" >&2; exit 2 ;;
@@ -77,6 +82,8 @@ mkdir -p "$OUTPUT/Contents/MacOS" "$OUTPUT/Contents/Resources"
 cp "$AGENT_BINARY" "$OUTPUT/Contents/MacOS/PomoAgent"
 cp "$CLI_BINARY" "$OUTPUT/Contents/Resources/pomo"
 cp "$ROOT/Resources/PomoAgent/Info.plist" "$OUTPUT/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$OUTPUT/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$OUTPUT/Contents/Info.plist"
 chmod 755 "$OUTPUT/Contents/MacOS/PomoAgent"
 codesign --force --deep --sign - --options runtime "$OUTPUT"
 codesign --verify --deep --strict "$OUTPUT"

@@ -21,6 +21,8 @@ struct PomoCLI {
                     Data("`--replace` is available only with `pomo start`.\n".utf8))
                 Foundation.exit(2)
             }
+            await launchAgentIfNeeded()
+            guard chooseInteractiveSetupSurface() else { return }
             await runPlainSetup()
             return
         }
@@ -286,6 +288,20 @@ struct PomoCLI {
         if !response.ok {
             Foundation.exit(Int32(response.error?.exitCode ?? 1))
         }
+    }
+
+    private static func chooseInteractiveSetupSurface() -> Bool {
+        print("Pomo is active in the menu bar.")
+        print(
+            "Press Enter to set up in the CLI, or type m to continue in the menu bar:",
+            terminator: " ")
+        guard let answer = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        else { return false }
+        if answer == "m" || answer == "menu" {
+            print("Continue setup from the Pomo menu bar item.")
+            return false
+        }
+        return true
     }
 
     private static func selectPreset() async -> Preset? {

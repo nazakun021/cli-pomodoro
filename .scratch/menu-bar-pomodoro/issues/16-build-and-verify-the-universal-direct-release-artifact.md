@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-- [ ] Packaging produces one versioned universal archive containing only the expected Pomo app bundle with bundled CLI and zsh, bash, and fish completions.
+- [ ] Packaging produces versioned universal and arm64 archives containing only the expected Pomo app bundle with bundled CLI and zsh, bash, and fish completions, plus a raw arm64 CLI asset for automation.
 - [ ] App and CLI share one Semantic Version, the approved bundle identity, macOS 13 deployment target, and independently versioned protocol, database, archive, and public schemas.
 - [ ] Native app and CLI executable code contain both Apple Silicon and Intel slices and launch natively on required supported hardware.
 - [ ] Nested code is signed before the app, and strict verification confirms ad-hoc signing with Hardened Runtime and no false notarization or sandbox claim.

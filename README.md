@@ -43,3 +43,25 @@ passed Start, Pause, Resume, Skip, and confirmed Stop against the same Agent,
 with an icon-only focus symbol while Idle. The deterministic runtime-host
 XCUITest now covers the native status-item workflow; the complete nine-test UI
 target passes with zero skips.
+
+## Interactive startup
+
+After packaging and launching Pomo, type `pomo` with no subcommand in a TTY. The
+CLI activates or attaches to the menu-bar Agent, then lets you choose the setup
+surface: press Enter to configure a Session in the CLI, or type `m` to continue
+from the menu bar.
+
+## Install from GitHub Releases
+
+Pomo releases include both the menu-bar app and its bundled CLI. Install the
+latest Apple Silicon release with:
+
+```sh
+curl -fsSL https://github.com/nazakun021/cli-pomodoro/releases/latest/download/install-pomo-macos-arm64.sh -o /tmp/install-pomo.sh
+sh /tmp/install-pomo.sh
+```
+
+The installer places `Pomo.app` in `~/Applications`, links its bundled `pomo`
+command into `~/.local/bin`, and opens the app. Add `~/.local/bin` to `PATH` if
+needed. A raw `pomo-macos-arm64` release asset is also published for CLI-only
+automation, but it does not include the menu-bar Agent.

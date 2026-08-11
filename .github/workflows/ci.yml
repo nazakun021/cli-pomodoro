@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  swift:
+    name: Swift build and tests
+    runs-on: macos-14
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Validate scripts
+        run: |
+          sh -n Scripts/package-agent-app.sh
+          sh -n Scripts/install-pomo-macos-arm64.sh
+          ruby -e 'require "yaml"; YAML.load_file(".github/workflows/ci.yml"); YAML.load_file(".github/workflows/release.yml")'
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
+
+  package:
+    name: Verify arm64 package
+    runs-on: macos-14
+    needs: swift
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Package app
+        env:
+          POMO_ARCHES: arm64
+          POMO_VERSION: 0.1.0
+        run: Scripts/package-agent-app.sh debug /tmp/Pomo-ci.app
+
+      - name: Verify app
+        run: |
+          codesign --verify --deep --strict /tmp/Pomo-ci.app
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' /tmp/Pomo-ci.app/Contents/Info.plist)" = "com.nazakun.pomo"
+          test -x /tmp/Pomo-ci.app/Contents/MacOS/PomoAgent
+          test -x /tmp/Pomo-ci.app/Contents/Resources/pomo
