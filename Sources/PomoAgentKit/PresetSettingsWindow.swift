@@ -135,14 +135,26 @@ private struct PresetSettingsView: View {
                     model.selectedID == nil)
             }
             Form {
-                TextField("Name", text: $model.name).disabled(model.isClassic)
-                TextField("Focus", text: $model.focus).disabled(model.isClassic)
-                TextField("Short Break", text: $model.shortBreak).disabled(model.isClassic)
-                TextField("Long Break", text: $model.longBreak).disabled(model.isClassic)
-                TextField("Long Break Every", text: $model.cadence).disabled(model.isClassic)
+                TextField("Name", text: $model.name)
+                    .accessibilityIdentifier("Preset Name")
+                    .disabled(model.isClassic)
+                TextField("Focus", text: $model.focus)
+                    .accessibilityIdentifier("Preset Focus")
+                    .disabled(model.isClassic)
+                TextField("Short Break", text: $model.shortBreak)
+                    .accessibilityIdentifier("Preset Short Break")
+                    .disabled(model.isClassic)
+                TextField("Long Break", text: $model.longBreak)
+                    .accessibilityIdentifier("Preset Long Break")
+                    .disabled(model.isClassic)
+                TextField("Long Break Every", text: $model.cadence)
+                    .accessibilityIdentifier("Preset Long Break Every")
+                    .disabled(model.isClassic)
                 Toggle("Open-ended", isOn: $model.openEnded).disabled(model.isClassic)
                 TextField("Rounds", text: $model.rounds).disabled(
-                    model.isClassic || model.openEnded)
+                    model.isClassic || model.openEnded
+                )
+                .accessibilityIdentifier("Preset Rounds")
                 Toggle("Auto-start Focus", isOn: $model.autoStartFocus).disabled(model.isClassic)
                 Toggle("Auto-start Breaks", isOn: $model.autoStartBreaks).disabled(model.isClassic)
             }

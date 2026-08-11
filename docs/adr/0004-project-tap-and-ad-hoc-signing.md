@@ -14,6 +14,8 @@ The project will not use Apple Developer ID signing or notarization for current 
 - Expose the `pomo` executable and generated zsh, bash, and fish completions through the cask.
 - Publish a matching universal app/CLI archive and cryptographic checksums in each GitHub release.
 - Ad-hoc sign app and CLI builds with Hardened Runtime enabled. Do not enable App Sandbox because the external CLI/socket model is outside Mac App Store distribution.
+- Treat system notifications and notification actions as unavailable in ad-hoc builds. Ad-hoc releases do not request notification authorization and guarantee completion feedback through the bundled chime, status item, menu state, and accessible missed-alert indicator instead.
+- Enable system notification permission, delivery, and actions only when the running app has both a bundle identifier and Apple signing team identifier. Revisit this capability when Apple Development or Developer ID signing becomes available.
 - Do not require Apple notarization for stable 1.0. Test and publish Gatekeeper trust steps for each release channel.
 - Deliver first-release updates only through Homebrew.
 - Require users to stop an active Session and run `pomo quit` before `brew upgrade`. Installation scripts must not silently terminate the Agent.
@@ -44,6 +46,7 @@ Artifact layout, release checks, trust instructions, and automation are defined 
 - Distribution remains in a project tap rather than promising acceptance into official Homebrew casks.
 - Universal artifacts are larger and require both-architecture validation.
 - Users must coordinate Agent shutdown before Homebrew upgrades.
+- Ad-hoc releases cannot provide system completion notifications or notification actions; users rely on sound and menu-bar feedback until Apple signing is available.
 
 ## Alternatives considered
 

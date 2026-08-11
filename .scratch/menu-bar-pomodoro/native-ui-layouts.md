@@ -65,8 +65,8 @@ Classic fields are read-only and Duplicate remains available. Deleting the defau
 
 ### Alerts
 
-- Notification authorization state and Open System Settings action when denied.
-- Notification enabled preference.
+- Notification authorization state and Open System Settings action when denied, only when Apple notification capability exists.
+- Notification enabled preference, only when Apple notification capability exists.
 - Sound enabled preference and chime Preview button.
 - Explanation of pending-permission missed-alert indicator.
 

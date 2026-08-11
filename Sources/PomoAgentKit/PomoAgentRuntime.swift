@@ -1,5 +1,6 @@
 import AppKit
 import PomoCore
+import Security
 import ServiceManagement
 @preconcurrency import UserNotifications
 
@@ -11,8 +12,88 @@ private func localDateString(_ date: Date) -> String {
     return formatter.string(from: date)
 }
 
+func systemNotificationsAvailable(bundleIdentifier: String?, teamIdentifier: String?) -> Bool {
+    bundleIdentifier != nil && teamIdentifier != nil
+}
+
+private var signingTeamIdentifier: String? {
+    guard let task = SecTaskCreateFromSelf(nil) else { return nil }
+    return SecTaskCopyValueForEntitlement(
+        task,
+        "com.apple.developer.team-identifier" as CFString,
+        nil) as? String
+}
+
 private var notificationsAvailable: Bool {
-    Bundle.main.bundleIdentifier != nil
+    systemNotificationsAvailable(
+        bundleIdentifier: Bundle.main.bundleIdentifier,
+        teamIdentifier: signingTeamIdentifier)
+}
+
+@MainActor
+private final class RuntimeHostWindowController {
+    private let dispatcher = MainRunLoopDispatcher()
+    private let window: NSWindow
+
+    init() {
+        window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false)
+        window.title = "Pomo UI Test Host"
+        window.isReleasedWhenClosed = false
+        let titleLabel = NSTextField(labelWithString: "Pomo UI Test Host")
+        titleLabel.alignment = .center
+        window.contentView = titleLabel
+        window.center()
+    }
+
+    func showWhenRunning() {
+        dispatcher.dispatch { [weak self] in
+            self?.window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+}
+
+private struct AgentRuntimeFoundation: @unchecked Sendable {
+    let agent: PomoAgentCore
+    let server: LocalAgentServer
+    let presetStore: PresetStore
+    let lifecycleStore: AgentLifecycleStore
+    let priorInterruption: AgentLifecycleMarker?
+    let alertPreferences: AlertPreferencesStore
+}
+
+@MainActor
+private final class AgentRuntimeOwner {
+    private var statusItem: IdleStatusItem?
+    private var notificationDelegate: PomoNotificationDelegate?
+
+    func install(_ foundation: AgentRuntimeFoundation) {
+        let statusItem = IdleStatusItem(
+            agent: foundation.agent,
+            server: foundation.server,
+            presetStore: foundation.presetStore,
+            lifecycleStore: foundation.lifecycleStore,
+            priorInterruption: foundation.priorInterruption,
+            alertPreferences: foundation.alertPreferences)
+        self.statusItem = statusItem
+        guard notificationsAvailable else { return }
+
+        let delegate = PomoNotificationDelegate(
+            agent: foundation.agent,
+            openStatus: { statusItem.showStatus() })
+        notificationDelegate = delegate
+        UNUserNotificationCenter.current().delegate = delegate
+        let startNext = UNNotificationAction(
+            identifier: "POMO_START_NEXT", title: "Start Next Phase", options: [])
+        let phaseCategory = UNNotificationCategory(
+            identifier: "POMO_PHASE", actions: [startNext], intentIdentifiers: [])
+        UNUserNotificationCenter.current().setNotificationCategories([phaseCategory])
+    }
 }
 
 public struct PomoAgent {
@@ -49,79 +130,99 @@ public struct PomoAgent {
         if environment["POMO_TEST_PROFILE"] != nil {
             application.setActivationPolicy(.regular)
         }
-        let applicationSupportDirectory: URL
-        if let testSupportDirectory = environment["POMO_TEST_SUPPORT_DIR"] {
-            applicationSupportDirectory = URL(
-                fileURLWithPath: testSupportDirectory, isDirectory: true)
-            try? FileManager.default.createDirectory(
-                at: applicationSupportDirectory, withIntermediateDirectories: true)
-        } else if let standardSupportDirectory = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first {
-            applicationSupportDirectory = standardSupportDirectory
-        } else {
-            return
-        }
-        guard
-            let presetStore = try? PresetStore.applicationSupportStore(
-                in: applicationSupportDirectory)
-        else { return }
-        let preferencesDefaults =
-            environment["POMO_TEST_PROFILE"]
-            .flatMap(UserDefaults.init(suiteName:)) ?? .standard
-        let alertPreferences = AlertPreferencesStore(defaults: preferencesDefaults)
-        let lifecycleStore = AgentLifecycleStore(defaults: preferencesDefaults)
-        let summaryURL =
-            applicationSupportDirectory
-            .appendingPathComponent("Pomo", isDirectory: true)
-            .appendingPathComponent("summary.json")
-        guard let summaryStore = try? SummaryStore(fileURL: summaryURL) else {
-            return
-        }
-        let agent = PomoAgentCore(
-            productVersion: "0.1.0", presetStore: presetStore, summaryStore: summaryStore)
-        let snapshot = await agent.snapshot()
-        lifecycleStore.markRunning(
-            instanceID: snapshot.agentInstanceID ?? UUID(),
-            hasActiveSession: snapshot.agentState == .session)
-        let socketPath: String?
-        if environment["POMO_TEST_PROFILE"] != nil {
-            socketPath = try? RuntimeEndpoint.prepare(in: applicationSupportDirectory)
-        } else {
-            socketPath = try? RuntimeEndpoint.prepare()
-        }
-        guard let socketPath,
-            let server = try? LocalAgentServer(path: socketPath, agent: agent)
-        else {
-            return
-        }
-        let priorInterruption = lifecycleStore.consumeUnexpectedTermination()
-        let statusItem = IdleStatusItem(
-            agent: agent, server: server, presetStore: presetStore, lifecycleStore: lifecycleStore,
-            priorInterruption: priorInterruption, alertPreferences: alertPreferences)
-        let notificationDelegate: PomoNotificationDelegate?
-        if notificationsAvailable {
-            let delegate = PomoNotificationDelegate(
-                agent: agent, openStatus: { statusItem.showStatus() })
-            notificationDelegate = delegate
-            UNUserNotificationCenter.current().delegate = delegate
-            let startNext = UNNotificationAction(
-                identifier: "POMO_START_NEXT", title: "Start Next Phase", options: [])
-            let phaseCategory = UNNotificationCategory(
-                identifier: "POMO_PHASE", actions: [startNext], intentIdentifiers: [])
-            UNUserNotificationCenter.current().setNotificationCategories([phaseCategory])
-        } else {
-            notificationDelegate = nil
-        }
-        withExtendedLifetime(statusItem) {
-            withExtendedLifetime(notificationDelegate) {
+        if environment["POMO_UI_TEST_MODE"] == "runtime-host" {
+            let host = RuntimeHostWindowController()
+            host.showWhenRunning()
+            let owner = AgentRuntimeOwner()
+            let dispatcher = MainRunLoopDispatcher()
+            Task.detached {
+                guard let foundation = await buildRuntimeFoundation(environment: environment)
+                else { return }
+                dispatcher.dispatch {
+                    owner.install(foundation)
+                }
+            }
+            withExtendedLifetime((host, owner, dispatcher)) {
                 application.run()
             }
+            return
+        }
+
+        guard let foundation = await buildRuntimeFoundation(environment: environment) else {
+            return
+        }
+        let owner = AgentRuntimeOwner()
+        owner.install(foundation)
+        withExtendedLifetime(owner) {
+            application.run()
         }
     }
 }
 
-private final class MenuActionTarget: NSObject {
+private func buildRuntimeFoundation(environment: [String: String]) async
+    -> AgentRuntimeFoundation?
+{
+    let applicationSupportDirectory: URL
+    if let testSupportDirectory = environment["POMO_TEST_SUPPORT_DIR"] {
+        applicationSupportDirectory = URL(
+            fileURLWithPath: testSupportDirectory, isDirectory: true)
+        try? FileManager.default.createDirectory(
+            at: applicationSupportDirectory, withIntermediateDirectories: true)
+    } else if let standardSupportDirectory = FileManager.default.urls(
+        for: .applicationSupportDirectory, in: .userDomainMask
+    ).first {
+        applicationSupportDirectory = standardSupportDirectory
+    } else {
+        return nil
+    }
+    guard
+        let presetStore = try? PresetStore.applicationSupportStore(
+            in: applicationSupportDirectory)
+    else { return nil }
+    let preferencesDefaults =
+        environment["POMO_TEST_PROFILE"]
+        .flatMap(UserDefaults.init(suiteName:)) ?? .standard
+    let alertPreferences = AlertPreferencesStore(defaults: preferencesDefaults)
+    if environment["POMO_UI_TEST_MODE"] == "runtime-host" {
+        alertPreferences.hasCompletedOnboarding = true
+        alertPreferences.hasShownNotificationExplanation = true
+    }
+    let lifecycleStore = AgentLifecycleStore(defaults: preferencesDefaults)
+    let summaryURL =
+        applicationSupportDirectory
+        .appendingPathComponent("Pomo", isDirectory: true)
+        .appendingPathComponent("summary.json")
+    guard let summaryStore = try? SummaryStore(fileURL: summaryURL) else {
+        return nil
+    }
+    let agent = PomoAgentCore(
+        productVersion: "0.1.0", presetStore: presetStore, summaryStore: summaryStore)
+    let snapshot = await agent.snapshot()
+    lifecycleStore.markRunning(
+        instanceID: snapshot.agentInstanceID ?? UUID(),
+        hasActiveSession: snapshot.agentState == .session)
+    let socketPath: String?
+    if environment["POMO_TEST_PROFILE"] != nil {
+        socketPath = try? RuntimeEndpoint.prepare(in: applicationSupportDirectory)
+    } else {
+        socketPath = try? RuntimeEndpoint.prepare()
+    }
+    guard let socketPath,
+        let server = try? LocalAgentServer(path: socketPath, agent: agent)
+    else {
+        return nil
+    }
+    let priorInterruption = lifecycleStore.consumeUnexpectedTermination()
+    return AgentRuntimeFoundation(
+        agent: agent,
+        server: server,
+        presetStore: presetStore,
+        lifecycleStore: lifecycleStore,
+        priorInterruption: priorInterruption,
+        alertPreferences: alertPreferences)
+}
+
+final class MenuActionTarget: NSObject {
     private let handler: @MainActor () -> Void
 
     init(handler: @escaping @MainActor () -> Void) {
@@ -136,25 +237,47 @@ private final class MenuActionTarget: NSObject {
     }
 }
 
+@MainActor
+func makeMenuActionItem(
+    in menu: NSMenu,
+    title: String,
+    keyEquivalent: String,
+    target: MenuActionTarget
+) -> NSMenuItem {
+    let menuItem = menu.addItem(
+        withTitle: title,
+        action: #selector(MenuActionTarget.invokeMenuAction),
+        keyEquivalent: keyEquivalent)
+    menuItem.target = target
+    menuItem.representedObject = target
+    return menuItem
+}
+
 final class MainRunLoopDispatcher: NSObject, @unchecked Sendable {
     private let lock = NSLock()
-    private var pendingAction: (@MainActor () -> Void)?
+    private var pendingActions: [@MainActor () -> Void] = []
+    private var drainScheduled = false
 
     func dispatch(_ action: @escaping @MainActor () -> Void) {
         lock.lock()
-        pendingAction = action
+        pendingActions.append(action)
+        let shouldSchedule = !drainScheduled
+        drainScheduled = true
         lock.unlock()
-        performSelector(onMainThread: #selector(runPendingAction), with: nil, waitUntilDone: false)
+        guard shouldSchedule else { return }
+        performSelector(onMainThread: #selector(runPendingActions), with: nil, waitUntilDone: false)
     }
 
-    @objc private func runPendingAction() {
+    @objc private func runPendingActions() {
         lock.lock()
-        let action = pendingAction
-        pendingAction = nil
+        let actions = pendingActions
+        pendingActions.removeAll(keepingCapacity: true)
+        drainScheduled = false
         lock.unlock()
-        guard let action else { return }
-        MainActor.assumeIsolated {
-            action()
+        for action in actions {
+            MainActor.assumeIsolated {
+                action()
+            }
         }
     }
 }
@@ -205,6 +328,7 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
         item.button?.title = ""
         item.button?.image = NSImage(
             systemSymbolName: "target", accessibilityDescription: "Pomo Idle")
+        item.button?.setAccessibilityLabel("Pomo Idle")
         let initialMenu = NSMenu()
         addMenuAction(to: initialMenu, title: "Start Classic") { [weak self] in
             self?.startClassic()
@@ -288,6 +412,8 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
         if snapshot.agentState == .session {
             let phase = snapshot.phaseType == .focus ? "Focus" : "Break"
             let state = snapshot.sessionState?.rawValue.capitalized ?? "Unknown"
+            let statusDescription =
+                missedAlert ? "Pomo has a missed completion alert" : "Pomo \(phase) \(state)"
             let rounds: String
             if let targetRounds = snapshot.configuration?.targetRounds {
                 rounds = "Round \((snapshot.completedRounds ?? 0) + 1) of \(targetRounds)"
@@ -298,9 +424,8 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
                 systemSymbolName: missedAlert
                     ? "bell.badge"
                     : statusSymbol(for: snapshot),
-                accessibilityDescription: missedAlert
-                    ? "Pomo has a missed completion alert"
-                    : "Pomo \(phase) \(state)")
+                accessibilityDescription: statusDescription)
+            item.button?.setAccessibilityLabel(statusDescription)
             item.button?.title = formatRemaining(snapshot.remainingSeconds ?? 0)
             menu.addItem(withTitle: "\(phase) - \(state)", action: nil, keyEquivalent: "")
             menu.addItem(withTitle: rounds, action: nil, keyEquivalent: "")
@@ -322,12 +447,13 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
                 keyEquivalent: "")
             addSummaryItem(to: menu, summary: summary)
         } else {
+            let statusDescription =
+                missedAlert ? "Pomo has a missed completion alert" : "Pomo Idle"
             item.button?.title = ""
             item.button?.image = NSImage(
                 systemSymbolName: missedAlert ? "bell.badge" : "target",
-                accessibilityDescription: missedAlert
-                    ? "Pomo has a missed completion alert"
-                    : "Pomo Idle")
+                accessibilityDescription: statusDescription)
+            item.button?.setAccessibilityLabel(statusDescription)
             addQuickStartItems(to: menu)
             addSummaryItem(to: menu, summary: summary)
         }
@@ -448,12 +574,11 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
     ) -> NSMenuItem {
         let target = MenuActionTarget(handler: handler)
         menuActionTargets.append(target)
-        let menuItem = menu.addItem(
-            withTitle: title,
-            action: #selector(MenuActionTarget.invokeMenuAction),
-            keyEquivalent: keyEquivalent)
-        menuItem.target = target
-        return menuItem
+        return makeMenuActionItem(
+            in: menu,
+            title: title,
+            keyEquivalent: keyEquivalent,
+            target: target)
     }
 
     private func addStartPresetItem(_ preset: Preset, title: String, to menu: NSMenu) {
@@ -592,7 +717,12 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
         authorizationRequested = true
         let dispatcher = mainRunLoopDispatcher
         UNUserNotificationCenter.current().requestAuthorization(
-            options: [.alert, .sound]) { [weak self, dispatcher] _, _ in
+            options: [.alert, .sound]) { [weak self, dispatcher] granted, error in
+                if let error {
+                    NSLog("Pomo notification authorization failed: %@", error.localizedDescription)
+                } else {
+                    NSLog("Pomo notification authorization granted: %@", granted.description)
+                }
                 dispatcher.dispatch { [weak self] in
                     self?.refresh()
                 }
@@ -600,6 +730,7 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
     }
 
     private func explainNotificationsIfNeeded() {
+        guard notificationsAvailable else { return }
         guard !alertPreferences.hasShownNotificationExplanation else { return }
         guard !isExplainingNotifications else { return }
         isExplainingNotifications = true
@@ -615,7 +746,6 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
     }
 
     private func deliverCompletionCue(from previous: AgentSnapshot?, to current: AgentSnapshot) {
-        guard notificationsAvailable else { return }
         guard let previous,
             previous.agentState == .session,
             previous.phaseType == .focus,
@@ -624,6 +754,11 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
         let preferences = alertPreferences.preferences
         if preferences.soundEnabled { playCompletionChime() }
         guard preferences.notificationsEnabled else { return }
+        guard notificationsAvailable else {
+            missedAlert = true
+            alertPreferences.hasMissedAlert = true
+            return
+        }
         let generation = missedAlertGeneration
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             let authorization: AlertAuthorization
@@ -730,12 +865,7 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
 
     @objc private func openAlerts() {
         guard notificationsAvailable else {
-            let alert = NSAlert()
-            alert.messageText = "Alerts Unavailable"
-            alert.informativeText =
-                "Notifications are available when Pomo runs as a bundled macOS app."
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
+            presentUnavailableAlerts()
             return
         }
         let dispatcher = mainRunLoopDispatcher
@@ -744,6 +874,23 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
                 self?.presentAlerts(for: settings.authorizationStatus)
             }
         }
+    }
+
+    private func presentUnavailableAlerts() {
+        let preferences = alertPreferences.preferences
+        let alert = NSAlert()
+        alert.messageText = "Alerts"
+        alert.informativeText =
+            "System notifications require an Apple-signed build. Completion sound and menu feedback remain available."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        let sound = NSButton(checkboxWithTitle: "Sound", target: nil, action: nil)
+        sound.state = preferences.soundEnabled ? .on : .off
+        alert.accessoryView = sound
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        alertPreferences.preferences = AlertPreferences(
+            notificationsEnabled: preferences.notificationsEnabled,
+            soundEnabled: sound.state == .on)
     }
 
     private func presentAlerts(for authorizationStatus: UNAuthorizationStatus) {

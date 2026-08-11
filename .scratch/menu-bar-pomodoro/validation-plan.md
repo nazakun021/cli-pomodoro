@@ -40,7 +40,7 @@ Transport framing, 1 MiB limits, incompatible negotiation, invalid-state command
 
 CLI subprocess/pseudo-terminal tests cover all commands, exit codes, output streams, public JSON fixtures, alternate-screen restoration, `--plain`, non-TTY behavior, signals, resize, backpressure, and Agent startup timeout.
 
-XCUITest covers status-item/menu flows, Settings tabs, popovers, summary layout, Recovery actions, notification action routing, launch-at-login errors, keyboard-only navigation, and accessibility labels. Tests must not mutate the maintainer's real Pomo data or login registration.
+XCUITest covers status-item/menu flows, Settings tabs, popovers, summary layout, Recovery actions, capability-appropriate Alerts routing, launch-at-login errors, keyboard-only navigation, and accessibility labels. Tests must not mutate the maintainer's real Pomo data or login registration.
 
 ## Build gates
 
@@ -81,9 +81,9 @@ Stable release evidence covers:
 
 - Apple Silicon on macOS 13 and current supported macOS.
 - Intel on macOS 13 and current Intel-supported macOS available to the project.
-- clean user profile for first launch, notification prompt, login registration, and data paths.
+- clean user profile for first launch, login registration, and data paths; include the notification prompt when an Apple team-signed build is available.
 - sleep/wake during Focus and Break, including deadline race.
-- notification allowed, denied, pending, disabled, action handling, sound, and missed-alert acknowledgment.
+- sound and missed-alert acknowledgment in every build; notification allowed, denied, pending, disabled, and action handling when an Apple team-signed build is available.
 - VoiceOver, keyboard-only use, Increase Contrast, Reduce Motion, light/dark appearance.
 - Homebrew install/upgrade/uninstall/zap and direct GitHub archive install.
 - Direct archive: checksum, app installation, first launch, bundled CLI execution, and Agent auto-launch after Apple's Open Anyway flow.

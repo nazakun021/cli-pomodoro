@@ -13,8 +13,11 @@ let package = Package(
     targets: [
         .target(name: "PomoCore", linkerSettings: [.linkedLibrary("sqlite3")]),
         .executableTarget(name: "PomoCLI", dependencies: ["PomoCore"]),
-        .target(name: "PomoAgentKit", dependencies: ["PomoCore"]),
+        .target(
+            name: "PomoAgentKit",
+            dependencies: ["PomoCore"],
+            linkerSettings: [.linkedFramework("Security")]),
         .executableTarget(name: "PomoAgent", dependencies: ["PomoAgentKit"]),
-        .testTarget(name: "PomoCoreTests", dependencies: ["PomoCore"]),
+        .testTarget(name: "PomoCoreTests", dependencies: ["PomoCore", "PomoAgentKit"]),
     ]
 )

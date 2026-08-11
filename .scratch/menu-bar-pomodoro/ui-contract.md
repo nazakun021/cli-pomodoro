@@ -50,7 +50,7 @@ Stop requires confirmation and names the impact on partial Focus accounting. Ski
 
 - General: launch at login, app-level behavior, full reset, and onboarding state where support access is needed.
 - Presets: list, create, duplicate, edit, delete, and select default.
-- Alerts: notification authorization/status, Open System Settings when denied, sound on/off, and chime preview.
+- Alerts: sound on/off and chime preview in every build; notification authorization/status and Open System Settings only when the running build has Apple notification capability.
 
 The built-in Classic Preset is immutable and duplicable. User Preset names are case-insensitively unique. Editing or deleting a source Preset never changes an active Session Configuration. Deleting the current default user Preset confirms that Classic becomes default and removes the deleted Preset from recents.
 
@@ -66,12 +66,12 @@ The built-in Classic Preset is immutable and duplicable. User Preset names are c
 ## First launch and permissions
 
 - First app launch opens a compact welcome popover identifying the status item, offering Classic quick start, linking Settings, and offering launch at login once with the choice off by default.
-- First Session start explains notifications and requests authorization without delaying Session start.
-- A Phase completion while authorization remains pending skips rather than queues that notification; menu feedback and enabled sound still occur.
+- First Session start explains notifications and requests authorization without delaying Session start only in an Apple team-signed build. Ad-hoc builds do not request unavailable permission.
+- A Phase completion while authorization remains pending or unavailable skips rather than queues that notification; menu feedback and enabled sound still occur.
 - The skipped notification adds a temporary, non-color-only missed-alert indicator to the current status-item representation and a concise menu row explaining that the completion alert was unavailable. VoiceOver announces the indicator without changing Phase state.
 - Opening the menu acknowledges and clears the status-item indicator; the menu row also supports explicit dismissal. The missed completion is never delivered later as a stale notification.
-- Denial preserves timing, menu cues, and enabled app sound. Alerts shows the denied state and an Open System Settings action.
-- Ready completion notifications offer Start Next Phase. Notifications after an automatic transition open current status without an invalid Start action.
+- Denial or unavailable capability preserves timing, menu cues, and enabled app sound. Signed builds show denial and Open System Settings; ad-hoc builds explain the signing requirement and retain Sound controls.
+- In capable signed builds, Ready completion notifications offer Start Next Phase. Notifications after an automatic transition open current status without an invalid Start action.
 
 ## Accessibility
 

@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Start and stop a Classic Focus Session
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Presets Settings lists Classic and user Presets and supports create, duplicate, edit, delete, and default selection with complete Configuration fields.
 - [x] User Preset names are unique under locale-independent case-insensitive comparison, and validation preserves pending form values.
@@ -14,7 +14,7 @@
 - [x] Editing or deleting a source Preset during an active Session does not alter that Session's immutable Configuration.
 - [x] Durable Presets, default selection, and protected Classic survive Agent restart with owner-only storage and one Agent writer.
 - [x] Repository and temporary-database tests verify physical constraints, protected-row triggers, rollback, default fallback, and case-insensitive uniqueness.
-- [ ] Native UI automation verifies keyboard operation, read-only Classic behavior, confirmations, focus order, and VoiceOver labels in Presets Settings.
+- [x] Native UI automation verifies keyboard operation, read-only Classic behavior, confirmations, focus order, and VoiceOver labels in Presets Settings.
 
 ## Validation evidence
 
@@ -29,8 +29,11 @@
 - `swift build` passed after adding the native Presets Settings window: menu access, complete configuration fields, create/update/duplicate/default actions, and confirmed deletion are wired to the durable repository.
 - `swift test` passed after the Settings integration: 51 tests, 0 failures.
 - Manual native verification passed on 2026-08-10: Tab/Shift-Tab navigation, Classic read-only controls, user-Preset deletion confirmation, and VoiceOver announcements all behaved correctly.
+- `testPresetSettingsProtectsClassicAndManagesCopy` passed through Classic read-only controls, duplication, Tab/Shift-Tab field editing, default selection, and sheet-confirmed deletion using stable accessibility identifiers.
+- Final validation: all 98 Swift tests and all five `PomoUITests` pass with zero skips; touched-file diagnostics and `git diff --check` are clean.
 
 ## Comments
 
 - The durable repository, default-resolution, owner-only Agent-startup, recency coupling, native Settings UI, and manual accessibility verification are complete.
 - 2026-08-11 audit: reopened because manual verification was recorded, but the ticket explicitly requires native UI automation and no Presets Settings UI test exists.
+- 2026-08-11 resolution: deterministic runtime-host automation now covers the missing Presets Settings boundary.

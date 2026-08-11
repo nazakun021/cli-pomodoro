@@ -1,6 +1,6 @@
 # Native Menu Runtime
 
-Status: Implemented with automation blocker
+Status: Implemented and automated
 
 The menu-bar Agent remains the sole Session authority defined by ADR-0001. The native status item calls the same `PomoAgentCore` actor mutations used by IPC; it does not own parallel Session state.
 
@@ -11,10 +11,11 @@ The menu-bar Agent remains the sole Session authority defined by ADR-0001. The n
 The implemented boundary therefore follows these rules:
 
 - Agent reads and mutations run in detached tasks against `PomoAgentCore`.
-- AppKit updates are delivered by `MainRunLoopDispatcher` through `performSelector(onMainThread:)`.
+- AppKit updates are delivered in order by `MainRunLoopDispatcher` through a queued `performSelector(onMainThread:)` drain.
 - Periodic Session refresh uses a Foundation `Timer` in `RunLoop.main` common modes.
 - The current `NSMenu` and its retained action targets are never replaced while the menu is open.
 - Every menu command uses a stable NSObject action target rather than an actor-isolated Objective-C selector thunk.
+- The isolated XCUITest runtime host enters AppKit immediately through a normal window, builds the shared Agent/socket foundation off-main, and installs the production status item through `MainRunLoopDispatcher`.
 
 ## UI contract conformance
 
@@ -34,4 +35,4 @@ On macOS 26.5.2 arm64, a signed packaged app using isolated durable storage pass
 4. Skip produced a running Short Break at revision 4 without completing a Round.
 5. Confirmed Stop returned Idle at revision 5.
 
-The Xcode real-runtime status-menu test remains skipped because Xcode 26.4 fails before interaction with `Application 'com.nazakun.pomo' has not loaded accessibility`. Ticket 02 remains blocked until that automation passes; live validation does not satisfy the automation criterion by itself.
+The runtime-host Idle status-item test attaches deterministically and passes on repeated runs. The complete Start/Pause/Resume/Skip/confirmed-Stop workflow passes unskipped after runtime-host mode suppresses only the education modals covered by separate onboarding tests. The full Swift suite passes 100 tests, including ordered dispatcher delivery, menu-target retention, and notification capability gating. All six UI tests pass with zero skips, including the sound-only Alerts fallback for ad-hoc builds.

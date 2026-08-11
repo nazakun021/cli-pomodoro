@@ -85,15 +85,15 @@ Technical macOS users can start and control a Pomodoro session with `pomo` or th
 - The agent remains in the menu bar while idle and shows only the app icon.
 - Ready shows a play/phase symbol and the upcoming phase's full duration; Paused shows a pause symbol and frozen remaining time.
 - When automatic transition is disabled, completion enters a ready state showing the upcoming phase and its full duration.
-- Phase completion can produce a macOS notification, a sound, and a visible menu-bar state change.
-- Notifications and sound are enabled by default and can be disabled globally.
+- Phase completion produces a configurable bundled sound, a visible menu-bar state change, and an accessible missed-alert indicator. Apple team-signed builds may additionally produce a macOS notification.
+- Sound is enabled by default. Notification preference and actions are available only when the running build has Apple notification capability.
 - The bundled default completion sound is a subtle, system-like chime suitable for repeated use.
-- On the first session start, the app briefly explains phase notifications before requesting macOS notification permission.
+- On the first Session start, an Apple team-signed build briefly explains phase notifications before requesting macOS notification permission. Ad-hoc builds do not request permission.
 - The first Session starts regardless of how or when the user responds to the notification prompt.
-- If authorization is still pending when a Phase completes, that completion notification is skipped rather than queued; menu feedback and enabled sound still occur, and later completions notify only after authorization is granted.
+- When notification capability exists, pending authorization skips rather than queues that completion notification; menu feedback and enabled sound still occur. Ad-hoc builds treat notification delivery as unavailable and retain the non-notification cues.
 - A skipped pending-permission notification sets a temporary, non-color-only missed-alert indicator on the status item and in the menu without altering the current Phase. It has meaningful VoiceOver semantics and clears when the menu is opened or the indicator is explicitly dismissed.
-- Denied notification permission does not affect timing, menu feedback, or enabled app sound. Alerts shows the denied state and offers Open System Settings.
-- A completion notification offers Start Next Phase only when the Session is Ready; otherwise opening it reveals current status.
+- Denied or unavailable notification capability does not affect timing, menu feedback, or enabled app sound. Signed builds expose denial and Open System Settings; ad-hoc builds explain the signing requirement and retain Sound settings.
+- In capable signed builds, a completion notification offers Start Next Phase only when the Session is Ready; otherwise opening it reveals current status.
 - Sound configuration is one global on/off preference using the bundled chime and normal macOS output volume.
 
 ### Lifecycle
@@ -156,7 +156,7 @@ Technical macOS users can start and control a Pomodoro session with `pomo` or th
 - Deleting the current default user Preset requires confirmation that Classic will become the new default; successful deletion performs that fallback and removes the deleted Preset from recents.
 - User Preset names are unique under case-insensitive comparison.
 - Settings are organized into General, Presets, and Alerts sections.
-- General contains launch-at-login and app-level behavior; Presets contains timing and transition configuration; Alerts contains notification and sound controls.
+- General contains launch-at-login and app-level behavior; Presets contains timing and transition configuration; Alerts always contains sound controls and conditionally contains notification controls when Apple notification capability exists.
 - First app launch opens a compact welcome popover identifying the status item, offering Classic quick start, and linking Settings.
 - The welcome popover offers launch at login once, defaulting off; it never enables registration without explicit consent.
 - In-app full reset is available while Idle or when a Recovery descriptor explicitly advertises Reset Data. It is unavailable during a normal active Session and requires confirmation naming Presets, preferences, Summary Records, and onboarding state as deleted data.
@@ -228,7 +228,7 @@ Technical macOS users can start and control a Pomodoro session with `pomo` or th
 All milestones preserve the full stable 1.0 scope; they sequence risk rather than silently removing features.
 
 1. Prove one authoritative Agent, shared domain state machine, local IPC, minimal native menu countdown, and direct non-interactive CLI Start/Status/Stop in development builds.
-2. Complete the interactive TUI wizard/Follow dashboard, Phase controls, finite/open-ended transitions, sleep handling, Presets, Settings, notifications, sound, onboarding, and accessibility behavior.
+2. Complete the interactive TUI wizard/Follow dashboard, Phase controls, finite/open-ended transitions, sleep handling, Presets, Settings, capability-gated notifications, sound, onboarding, and accessibility behavior.
 3. Complete Summary Records, streaks, history/reset, SQLite migrations, recovery mode, diagnostics, and failure-path UX.
 4. Complete universal packaging, invited technical preview validation, project Homebrew tap/GitHub releases, checksums, Hardened Runtime, trust instructions, and release automation.
 
@@ -258,10 +258,10 @@ Ad-hoc-signed previews are limited to maintainers and invited testers. Stable di
 - [ ] Backpressure disconnect exits with a stable error and never auto-reconnects or blocks Agent/Session processing.
 - [ ] Focus, short-break, and long-break transitions follow the selected preset and completion rules.
 - [ ] Sleep pauses the active phase without consuming remaining time.
-- [ ] Notifications, sound, and menu-bar feedback occur according to global preferences.
-- [ ] Denied notification permission never blocks Session start or control and exposes an actionable Settings status.
-- [ ] Ready completion notifications can start the next Phase without exposing an invalid action after automatic transition.
-- [ ] A completion occurring while notification authorization is pending is not queued, still produces enabled non-notification cues, and leaves an accessible missed-alert indicator until acknowledged.
+- [ ] Sound and menu-bar feedback occur according to global preferences in every build; notifications do so only when Apple notification capability exists.
+- [ ] Denied notification permission in a capable signed build never blocks Session start or control and exposes an actionable Settings status; an ad-hoc build does not request unavailable permission.
+- [ ] In a capable signed build, Ready completion notifications can start the next Phase without exposing an invalid action after automatic transition.
+- [ ] A completion occurring while notification authorization is pending or unavailable is not queued, still produces enabled non-notification cues, and leaves an accessible missed-alert indicator until acknowledged.
 - [ ] Finite and open-ended sessions behave as defined.
 - [ ] Local summaries count elapsed focus time and completed rounds according to the domain rules.
 - [ ] Daily, locale-aware weekly, and current-streak summaries agree between the menu snapshot and detail window.
@@ -319,7 +319,7 @@ Stable 1.0 requires:
 - Real Unix-socket/Agent integration tests, including version mismatch, stale endpoints, concurrent commands, deduplication, reconnect, and slow followers.
 - CLI subprocess contract tests for parsing, output streams, JSON/NDJSON schemas, exit codes, Agent startup, and Control-C detachment.
 - UI automation and accessibility audits for keyboard navigation, VoiceOver semantics, Reduce Motion, and non-color state cues.
-- Manual macOS checks for sleep/wake, notifications and actions, denied permissions, launch at login, Gatekeeper, upgrade, uninstall/zap, and full reset.
+- Manual macOS checks for sleep/wake, sound, launch at login, Gatekeeper, upgrade, uninstall/zap, and full reset. Notification permission and action checks apply when an Apple team-signed build is available.
 - Runtime and packaging validation on Apple Silicon and Intel, covering macOS 13 Ventura and the current supported macOS release.
 
 Exact commands, fixtures, performance test conditions, hardware availability, and evidence locations will be assigned during task breakdown.
