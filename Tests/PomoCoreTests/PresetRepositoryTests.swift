@@ -136,6 +136,9 @@ final class PresetRepositoryTests: XCTestCase {
         try store.delete(id: first.id)
 
         XCTAssertEqual(try store.recentPresets(), [third, second])
+
+        let reloadedStore = try PresetStore(databaseURL: databaseURL)
+        XCTAssertEqual(try reloadedStore.recentPresets(), [third, second])
     }
 
     func testAcceptedClassicStartUpdatesRecencyWithoutMutatingClassic() throws {

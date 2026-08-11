@@ -197,6 +197,7 @@ private func buildRuntimeFoundation(environment: [String: String]) async
     }
     let agent = PomoAgentCore(
         productVersion: "0.1.0", presetStore: presetStore, summaryStore: summaryStore)
+    let priorInterruption = lifecycleStore.consumeUnexpectedTermination()
     let snapshot = await agent.snapshot()
     lifecycleStore.markRunning(
         instanceID: snapshot.agentInstanceID ?? UUID(),
@@ -212,7 +213,6 @@ private func buildRuntimeFoundation(environment: [String: String]) async
     else {
         return nil
     }
-    let priorInterruption = lifecycleStore.consumeUnexpectedTermination()
     return AgentRuntimeFoundation(
         agent: agent,
         server: server,

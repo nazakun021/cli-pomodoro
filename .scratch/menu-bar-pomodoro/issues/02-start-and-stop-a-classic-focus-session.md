@@ -72,6 +72,6 @@ Action-target retention is now explicit through `NSMenuItem.representedObject` a
 
 Selector instrumentation proved Pause invokes and reaches revision `2` Paused, and the full workflow passed once with the host snapshot/action barriers present. After temporary instrumentation was removed, the workflow again raced while waiting for the Paused status label. The remaining task is test synchronization: retain a minimal host-owned revision label and wait for revisions `1` through `5` before each native UI assertion, without retaining the separate diagnostic test.
 
-Validation after dispatcher/target-retention repair: the full Swift suite passes 98 tests and the five-test UI target passes with zero skips. The focused full workflow passed once in 39.491 seconds with host barriers present.
+Validation after dispatcher/target-retention repair: the full Swift suite passes 100 tests and the seven-test UI target passes with zero skips. The focused full workflow passed once in 39.491 seconds with host barriers present.
 
 Resolved: runtime-host mode now suppresses only its separately tested education modals inside the app process, preventing `Completion Alerts` from intercepting Session controls. The full workflow and complete UI target pass unskipped.

@@ -38,7 +38,8 @@ POMO_TEST_SUPPORT_DIR=/tmp/pomo-validation/support \
 
 In another terminal, use `/tmp/pomo-validation/Pomo.app/Contents/Resources/pomo`
 to run `start`, `pause`, `resume`, `skip`, `stop`, and `status --json`. Stop the
-validation Agent when finished. The signed packaged status menu has also passed
-Start, Pause, Resume, Skip, and confirmed Stop against the same Agent, with an
-icon-only focus symbol while Idle. Native automation remains incomplete until the
-status-item XCUITest recorded in Ticket 02 passes.
+validation Agent when finished. The signed packaged status menu has also
+passed Start, Pause, Resume, Skip, and confirmed Stop against the same Agent,
+with an icon-only focus symbol while Idle. The deterministic runtime-host
+XCUITest now covers the native status-item workflow; the complete nine-test UI
+target passes with zero skips.

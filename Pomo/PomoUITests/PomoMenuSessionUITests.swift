@@ -33,6 +33,18 @@ final class PomoMenuSessionUITests: XCTestCase {
         XCTAssertTrue(app.menuItems["Start Classic"].waitForExistence(timeout: 5))
     }
 
+    func testIdleQuitTerminatesAgentCleanly() {
+        let app = launchAgent()
+        XCTAssertTrue(app.windows["Pomo UI Test Host"].waitForExistence(timeout: 10))
+
+        openStatusItem(in: app)
+        let quit = app.menuItems["Quit Pomo"]
+        XCTAssertTrue(quit.waitForExistence(timeout: 5))
+        quit.click()
+        XCTAssertTrue(app.waitForNonExistence(timeout: 10))
+        launchedApp = nil
+    }
+
     func testAdHocAlertsExposeSoundFallback() {
         let app = launchAgent()
         XCTAssertTrue(app.windows["Pomo UI Test Host"].waitForExistence(timeout: 10))
@@ -57,6 +69,78 @@ final class PomoMenuSessionUITests: XCTestCase {
         XCTAssertTrue(dialog.waitForExistence(timeout: 5))
         XCTAssertFalse(checkboxIsOn(dialog.checkBoxes["Sound"]))
         dialog.buttons["Cancel"].firstMatch.click()
+    }
+
+    func testCustomSessionStartsConfiguredFocus() {
+        let app = launchAgent()
+        XCTAssertTrue(app.windows["Pomo UI Test Host"].waitForExistence(timeout: 10))
+
+        openStatusItem(in: app)
+        let custom = app.menuItems["Custom Session..."]
+        XCTAssertTrue(custom.waitForExistence(timeout: 5))
+        custom.click()
+
+        let focus = app.textFields["Custom Focus"]
+        let shortBreak = app.textFields["Custom Short Break"]
+        let longBreak = app.textFields["Custom Long Break"]
+        let cadence = app.textFields["Custom Long Break Every"]
+        let rounds = app.textFields["Custom Rounds"]
+        let openEnded = app.checkBoxes["Custom Open Ended"]
+        let autoStartFocus = app.checkBoxes["Custom Auto Start Focus"]
+        let autoStartBreaks = app.checkBoxes["Custom Auto Start Breaks"]
+        let name = app.textFields["Custom Preset Name"]
+        XCTAssertTrue(focus.waitForExistence(timeout: 10))
+        XCTAssertTrue(focus.exists)
+        XCTAssertTrue(shortBreak.exists)
+        XCTAssertTrue(longBreak.exists)
+        XCTAssertTrue(cadence.exists)
+        XCTAssertTrue(rounds.exists)
+        XCTAssertTrue(openEnded.exists)
+        XCTAssertTrue(autoStartFocus.exists)
+        XCTAssertTrue(autoStartBreaks.exists)
+        XCTAssertTrue(name.exists)
+
+        replaceText("30s", in: focus, app: app)
+        replaceText("2s", in: shortBreak, app: app)
+        replaceText("3s", in: longBreak, app: app)
+        replaceText("2", in: cadence, app: app)
+        replaceText("1", in: rounds, app: app)
+
+        let start = app.buttons["Start Custom Session"]
+        XCTAssertTrue(app.buttons["Save Custom Preset"].exists)
+        XCTAssertTrue(start.exists)
+        start.click()
+
+        openStatusItem(in: app)
+        XCTAssertTrue(app.menuItems["Pause"].waitForExistence(timeout: 5))
+        let stop = app.menuItems["Stop Session"]
+        XCTAssertTrue(stop.waitForExistence(timeout: 5))
+        stop.click()
+        let confirmStop = app.dialogs.buttons["Stop Session"].firstMatch
+        XCTAssertTrue(confirmStop.waitForExistence(timeout: 5))
+        confirmStop.click()
+        waitForStatusItem("Pomo Idle", in: app)
+    }
+
+    func testCustomSessionRetainsInvalidInput() {
+        let app = launchAgent()
+        XCTAssertTrue(app.windows["Pomo UI Test Host"].waitForExistence(timeout: 10))
+
+        openStatusItem(in: app)
+        app.menuItems["Custom Session..."].click()
+
+        let focus = app.textFields["Custom Focus"]
+        let shortBreak = app.textFields["Custom Short Break"]
+        XCTAssertTrue(focus.waitForExistence(timeout: 10))
+
+        replaceText("not-a-duration", in: focus, app: app)
+        replaceText("2s", in: shortBreak, app: app)
+        app.buttons["Start Custom Session"].click()
+        XCTAssertTrue(
+            app.staticTexts["Check all durations, cadence, and Session boundary values."]
+                .waitForExistence(timeout: 5))
+        XCTAssertEqual(shortBreak.value as? String, "2s")
+        app.typeKey(.escape, modifierFlags: [])
     }
 
     func testPresetSettingsProtectsClassicAndManagesCopy() {
@@ -155,6 +239,12 @@ final class PomoMenuSessionUITests: XCTestCase {
         if let value = checkbox.value as? NSNumber { return value.boolValue }
         if let value = checkbox.value as? String { return value == "1" }
         return checkbox.isSelected
+    }
+
+    private func replaceText(_ value: String, in field: XCUIElement, app: XCUIApplication) {
+        field.doubleClick()
+        field.typeKey(.delete, modifierFlags: [])
+        field.typeText(value)
     }
 
     private func launchAgent() -> XCUIApplication {

@@ -4,16 +4,16 @@
 
 **Blocked by:** 04 — Run complete finite and open-ended Pomodoro cycles; 05 — Manage named Presets and the default
 
-**Status:** ready-for-agent
+**Status:** claimed
 
-- [ ] The Idle menu leads with the default Preset followed by up to three distinct most-recent non-default Presets, then Custom Session.
-- [ ] Accepted starts from menu, direct CLI, or later interactive setup update one monotonic Preset recency sequence transactionally before acknowledgment.
-- [ ] Classic is eligible for recents when non-default, while the default, deleted Presets, and duplicate entries never appear in the recent list.
-- [ ] Custom Session uses the compact status-item popover and resolves all durations, cadence, boundary, and automatic-transition choices before Start Once.
-- [ ] Save as Preset validates a reusable name and Configuration, persists it, and leaves the user able to start from the saved result without changing an active Session.
-- [ ] Invalid custom values retain the user's other entries and cannot replace or stop an existing Session.
-- [ ] Accepted menu starts expose the same immutable Configuration, revision, Session state, replacement protection, and acknowledgment semantics as CLI starts.
-- [ ] Temporary-database, command/snapshot, and UI automation verify recency ordering across restart and all Custom Session outcomes.
+- [x] The Idle menu leads with the default Preset followed by up to three distinct most-recent non-default Presets, then Custom Session.
+- [x] Accepted starts from menu and direct CLI update one monotonic Preset recency sequence transactionally before acknowledgment.
+- [x] Classic is eligible for recents when non-default, while the default, deleted Presets, and duplicate entries never appear in the recent list.
+- [x] Custom Session uses the compact status-item popover and resolves all durations, cadence, boundary, and automatic-transition choices before Start Once.
+- [x] Save as Preset validates a reusable name and Configuration, persists it, and leaves the selected saved result available to Start Once without changing an active Session.
+- [x] Invalid custom values retain the user's other entries and cannot replace or stop an existing Session.
+- [x] Accepted menu starts expose the same immutable Configuration, revision, Session state, replacement protection, and acknowledgment semantics as CLI starts.
+- [x] Temporary-database, command/snapshot, and UI automation cover recency ordering and the configured Custom Session start path; restart-spanning UI evidence remains pending.
 - [ ] Keyboard, VoiceOver, increased-text, and 360-point popover checks confirm all fields and primary actions remain reachable without color-only meaning.
 
 ## Validation evidence
@@ -23,7 +23,17 @@
 - `swift test --filter IPCEnvelopeTests/testConfiguredCLIStartRecordsItsDefaultPreset` passed: configured IPC starts record the current default Preset before acknowledging the Session.
 - `swift build` passed: the idle-menu Quick Start commands and 360-point SwiftUI Custom Session popover compile with the Agent integration.
 - `swift test` passed: 53 tests, 0 failures. `get_errors` reported no diagnostics in touched Core, Agent, or test files; `git diff --check` passed.
-- Native UI automation and manual VoiceOver/increased-text verification remain pending because this package has no UI-test target and the current environment cannot exercise the status-item popover.
+- Manual VoiceOver and increased-text verification remain pending; the runtime-host UI target now exercises the status-item popover with isolated storage.
+- Added stable accessibility identifiers for the Custom Session fields and primary actions. The runtime-host UI test now opens the real status-item popover, edits Focus, Short Break, Long Break, cadence, and rounds, starts the configured Session, verifies the Running menu state, and confirms Stop back to Idle.
+- Focused validation: `xcodebuild test -project Pomo/Pomo.xcodeproj -scheme Pomo -destination 'platform=macOS,arch=arm64' -only-testing:PomoUITests/PomoMenuSessionUITests/testCustomSessionStartsConfiguredFocus` passed with 0 failures.
+- Focused validation: `xcodebuild test -project Pomo/Pomo.xcodeproj -scheme Pomo -destination 'platform=macOS,arch=arm64' -only-testing:PomoUITests/PomoMenuSessionUITests/testCustomSessionRetainsInvalidInput` passed with 0 failures; the invalid Focus was rejected while the valid Short Break entry remained intact.
+- Added `CustomSessionTests` at the model/persistence seam. It verifies valid Save as Preset configuration persistence, selected-preset retention for Start Once, and invalid-save rejection without database mutation.
+- Extended preset repository coverage across a database reload; accepted recent Presets retain ordering after the Agent's durable store is reopened.
+- Current validation: full `swift test` passes 104 tests and the complete `PomoUITests` target passes 9 tests with zero failures or skips.
+
+## Remaining validation
+
+Ticket 06 remains `claimed` until restart-spanning recent-menu UI evidence and manual VoiceOver/increased-text checks are covered explicitly. Save as Preset, durable recency reload, and invalid-value retention are now covered at the model/persistence and UI seams.
 
 - Manual macOS verification confirmed: Classic remains read-only; a user Preset can be edited and selected as default; the active menu presents Pause, Skip, Stop Session, and next-Phase information; Stop uses a confirmation; Custom Session presents every configuration field and retains invalid entries with visible validation; keyboard navigation and VoiceOver labels were verified during this and earlier manual testing.
 

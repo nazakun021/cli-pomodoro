@@ -1,5 +1,6 @@
 import ApplicationServices
 import CoreGraphics
+import Darwin
 import Foundation
 import PomoCore
 import XCTest
@@ -19,6 +20,48 @@ final class NativeMenuAccessibilityTests: XCTestCase {
             attributeString(element, kAXRoleAttribute) == kAXMenuItemRole
                 && attributeString(element, kAXTitleAttribute) == "Start Classic"
         }
+    }
+
+    func testRepeatedPackagedLaunchKeepsOneAgentOwner() async throws {
+        let fixture = try await launchFixture()
+        defer { fixture.stop() }
+
+        let original = try await LocalAgentClient(path: fixture.socketPath).status()
+        let second = try fixture.launchSecondProcess()
+        second.waitUntilExit()
+
+        XCTAssertFalse(second.isRunning)
+        XCTAssertTrue(fixture.process.isRunning)
+        let current = try await LocalAgentClient(path: fixture.socketPath).status()
+        XCTAssertEqual(current.data?.agentInstanceID, original.data?.agentInstanceID)
+        XCTAssertEqual(current.data?.revision, original.data?.revision)
+    }
+
+    func testForcedPackagedCrashRelaunchesIdleWithoutRestoringSession() async throws {
+        let fixture = try await launchFixture()
+        defer { fixture.stop() }
+
+        _ = try await LocalAgentClient(path: fixture.socketPath).startClassic()
+        let runningResponse = try await LocalAgentClient(path: fixture.socketPath).status()
+        XCTAssertEqual(runningResponse.data?.agentState, .session)
+
+        XCTAssertEqual(kill(fixture.process.processIdentifier, SIGKILL), 0)
+        fixture.process.waitUntilExit()
+
+        let replacement = try fixture.launchSecondProcess()
+        defer {
+            if replacement.isRunning {
+                replacement.terminate()
+                replacement.waitUntilExit()
+            }
+        }
+        let response = try await waitForStatus(
+            at: fixture.socketPath, expecting: "replacement Agent to become Idle"
+        ) { snapshot in
+            snapshot.agentState == .idle
+        }
+        XCTAssertEqual(response.data?.agentState, .idle)
+        XCTAssertNil(response.data?.sessionID)
     }
 
     private func launchFixture() async throws -> NativeMenuFixture {
@@ -43,10 +86,11 @@ final class NativeMenuAccessibilityTests: XCTestCase {
         let executableURL = try XCTUnwrap(bundle.executableURL)
         let process = Process()
         process.executableURL = executableURL
-        process.environment = ProcessInfo.processInfo.environment.merging([
+        let environment = ProcessInfo.processInfo.environment.merging([
             "POMO_TEST_PROFILE": profile,
             "POMO_TEST_SUPPORT_DIR": supportDirectory.path,
         ]) { _, isolatedValue in isolatedValue }
+        process.environment = environment
         try process.run()
 
         let socketPath = try RuntimeEndpoint.prepare(in: supportDirectory)
@@ -56,7 +100,9 @@ final class NativeMenuAccessibilityTests: XCTestCase {
             application: application,
             socketPath: socketPath,
             supportDirectory: supportDirectory,
-            profile: profile)
+            profile: profile,
+            executableURL: executableURL,
+            environment: environment)
         do {
             _ = try await waitForStatus(at: socketPath)
             return fixture
@@ -73,6 +119,8 @@ private final class NativeMenuFixture {
     let socketPath: String
     private let supportDirectory: URL
     private let profile: String
+    private let executableURL: URL
+    private let environment: [String: String]
     private var stopped = false
 
     init(
@@ -80,13 +128,25 @@ private final class NativeMenuFixture {
         application: AXUIElement,
         socketPath: String,
         supportDirectory: URL,
-        profile: String
+        profile: String,
+        executableURL: URL,
+        environment: [String: String]
     ) {
         self.process = process
         self.application = application
         self.socketPath = socketPath
         self.supportDirectory = supportDirectory
         self.profile = profile
+        self.executableURL = executableURL
+        self.environment = environment
+    }
+
+    func launchSecondProcess() throws -> Process {
+        let process = Process()
+        process.executableURL = executableURL
+        process.environment = environment
+        try process.run()
+        return process
     }
 
     func stop() {

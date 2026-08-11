@@ -20,7 +20,7 @@ Resolved: The integration test now derives the status item's center from AX posi
 
 Reopened: Immediate repeated packaged AX runs produced one pass in 10.105 seconds followed by one `Accessibility element` timeout in 10.398 seconds. The coordinate/AX approach is useful diagnostic evidence but not deterministic validation. Replace it with a dedicated attachable UI-test host before resolving Ticket 01 or its dependent Ticket 02.
 
-Resolved: A dedicated normal-window runtime host enters AppKit immediately, then installs the same extracted Agent/socket/status-item foundation. Two consecutive focused Idle tests passed in 4.567 and 4.498 seconds; the current five-test UI target passes with zero skips.
+Resolved: A dedicated normal-window runtime host enters AppKit immediately, then installs the same extracted Agent/socket/status-item foundation. Two consecutive focused Idle tests passed in 4.567 and 4.498 seconds; the UI target subsequently expanded to eight tests and passes with zero skips.
 
 ## Resolved: Ticket 02 native Session workflow
 
@@ -52,7 +52,7 @@ Target-retention result: `NSMenuItem` now strongly retains `MenuActionTarget` th
 
 Selector result: With host-owned action/state instrumentation, Pause invoked and reached revision `2` Paused, and the complete Start/Pause/Resume/Skip/confirmed-Stop workflow passed once. Removing the temporary host barriers reintroduced a race waiting for the Paused status label. Keep a minimal revision/state label in runtime-host mode and make the full workflow wait for revisions `1` through `5` before asserting native controls.
 
-Resolved: Runtime-host mode now sets its separately tested onboarding/notification-explanation flags inside the launched app process, so `Completion Alerts` cannot intercept menu automation. The focused workflow passed through Start/Pause/Resume/Skip/confirmed Stop to Idle, and all five UI tests pass with zero skips.
+Resolved: Runtime-host mode now sets its separately tested onboarding/notification-explanation flags inside the launched app process, so `Completion Alerts` cannot intercept menu automation. The focused workflow passed through Start/Pause/Resume/Skip/confirmed Stop to Idle, and the nine-test UI target passes with zero skips.
 
 ## Historical manual evidence: Ticket 05 — Manage named Presets and the default
 
@@ -94,12 +94,12 @@ Attempted: Completed the Welcome popover, Alerts settings, authorization policy,
 
 Observed result: The focused Welcome accessibility test passes with a fresh per-run preferences/support profile. A live Xcode-app smoke test accepted CLI Start but remained Running with `remaining_seconds: 0` after the deadline, so completion cues were not verified. Standalone SwiftPM Agent launch also crashes because UserNotifications requires an app bundle. Interactive notification permission/action testing and clean-profile VoiceOver validation remain unexecuted.
 
-Required: Extend the UI target for Alerts and notification action routing, then run clean-profile macOS validation for allowed, denied, pending, and disabled notifications, sound playback, keyboard navigation, and VoiceOver semantics.
+Historical requirement superseded by the capability-gated MVP decision: extend the UI target for the ad-hoc sound fallback now; defer allowed, denied, pending, and disabled notification delivery/action validation until an Apple team-signed build exists.
 
 Update: A LaunchServices-started signed app with isolated storage completed a five-second finite Focus Session at Idle revision `2`. CoreAudio logs prove the completion chime played through the built-in output. Notification authorization returned `didGrant: 0, hasError: 1`, so notification presentation remains unverified for the ad-hoc bundle.
 
 Authorization recheck: Multiple Xcode-signed runtime-host Session runs repeated the same result after category registration and `requestAuthorization(options: 6)`: `didGrant: 0, hasError: 1`. The education modal no longer intercepts automation. Capture the callback's concrete error from an installed app before treating allowed notification/action coverage as executable.
 
-Installed-app result: A fresh app under `~/Applications` completed a five-second Session but authorization returned `UNError.notificationsNotAllowed` (`Notifications are not allowed for this application`) and created no Notification Center preference record. The bundle was ad-hoc signed with no Team ID, and no valid signing identity exists on this Mac. Required: provide an Apple Development/Developer ID comparison build or revise ADR-0004/Ticket 09 expectations.
+Installed-app result: A fresh app under `~/Applications` completed a five-second Session but authorization returned `UNError.notificationsNotAllowed` (`Notifications are not allowed for this application`) and created no Notification Center preference record. The bundle was ad-hoc signed with no Team ID, and no valid signing identity exists on this Mac. This result led to the capability-gated ADR-0004/Ticket 09 decision; an Apple Development or Developer ID build is only required for deferred signed-notification validation.
 
 Resolution: ADR-0004 and Ticket 09 now make system notifications conditional on Apple team signing. The ad-hoc MVP suppresses unavailable authorization and guarantees sound, menu, and accessible missed-alert feedback. Signed notification presentation and action validation remain tracked as technical debt rather than blocking Ticket 09.

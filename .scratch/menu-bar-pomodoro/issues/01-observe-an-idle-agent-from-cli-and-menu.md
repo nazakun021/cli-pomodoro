@@ -37,7 +37,7 @@
 - Replaced the blocked Idle XCUITest with `NativeMenuAccessibilityTests/testPackagedIdleMenuMatchesSocketSnapshot`. With `POMO_TEST_APP_PATH=/tmp/Pomo-Ticket01.app`, it launches the signed app under isolated preferences/storage, observes Idle revision `0` over framed IPC, finds the `Pomo Idle` AX element, clicks its AX-derived screen frame with CGEvent, and verifies `Start Classic`; the focused test passed in 1.380 seconds.
 - Final validation: the full Swift suite passed 94 tests; the complete `PomoUITests` target passed both onboarding tests with Ticket 02's real Session workflow as the only intentional skip; `swift build` and touched-file diagnostics pass.
 - Deterministic replacement: `testRuntimeHostExposesIdleStatusItem` enters AppKit immediately through a normal runtime-host window, then installs the same extracted Agent/socket/status-item foundation. Two consecutive focused runs passed in 4.567 and 4.498 seconds; the complete UI target passed the host test and both onboarding tests with only Ticket 02's Pause workflow skipped.
-- Post-refactor validation: the full Swift suite passes 98 tests, including ordered main-run-loop delivery and menu-target retention, and the complete five-test UI target passes with zero skips.
+- Post-refactor validation: the full Swift suite passes 101 tests, including ordered main-run-loop delivery, menu-target retention, lifecycle marker ordering, and notification capability gating, and the complete seven-test UI target passes with zero skips.
 
 ## Resolution
 

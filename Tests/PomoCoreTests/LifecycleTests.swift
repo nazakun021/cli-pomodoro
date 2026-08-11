@@ -39,4 +39,26 @@ final class LifecycleTests: XCTestCase {
                 hadActiveSession: true,
                 exitedCleanly: true))
     }
+
+    func testRelaunchConsumesCrashMarkerBeforeMarkingNewAgentRunning() {
+        let suiteName = "pomo-lifecycle-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = AgentLifecycleStore(defaults: defaults)
+        let priorInstanceID = UUID()
+        let newInstanceID = UUID()
+
+        store.markRunning(instanceID: priorInstanceID, hasActiveSession: true)
+        let priorInterruption = store.consumeUnexpectedTermination()
+        store.markRunning(instanceID: newInstanceID, hasActiveSession: false)
+
+        XCTAssertEqual(
+            priorInterruption,
+            AgentLifecycleMarker(
+                priorAgentInstanceID: priorInstanceID,
+                hadActiveSession: true,
+                exitedCleanly: false))
+        XCTAssertEqual(store.marker?.priorAgentInstanceID, newInstanceID)
+        XCTAssertTrue(store.marker?.exitedCleanly == false)
+    }
 }

@@ -428,7 +428,7 @@ struct PomoCLI {
         process.arguments = ["-a", appPath, "--background"]
         guard (try? process.run()) != nil else { return }
         for _ in 0..<30 {
-            guard !FileManager.default.fileExists(atPath: socketPath) else { return }
+            if (try? await LocalAgentClient(path: socketPath).status()) != nil { return }
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
     }

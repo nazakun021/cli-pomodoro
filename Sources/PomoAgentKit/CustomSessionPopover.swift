@@ -26,7 +26,7 @@ final class CustomSessionPopoverController {
 }
 
 @MainActor
-private final class CustomSessionModel: ObservableObject {
+final class CustomSessionModel: ObservableObject {
     private let agent: PomoAgentCore
     private let store: PresetStore
     private let onStarted: @MainActor () -> Void
@@ -146,22 +146,38 @@ private struct CustomSessionView: View {
                     Text(preset.name).tag(Optional(preset.id))
                 }
             }
+            .accessibilityIdentifier("Custom Base Preset")
             .onChange(of: model.selectedPresetID) { _ in model.loadSelectedPreset() }
             TextField("Focus", text: $model.focus)
+                .accessibilityIdentifier("Custom Focus")
             TextField("Short Break", text: $model.shortBreak)
+                .accessibilityIdentifier("Custom Short Break")
             TextField("Long Break", text: $model.longBreak)
+                .accessibilityIdentifier("Custom Long Break")
             TextField("Long Break Every", text: $model.cadence)
+                .accessibilityIdentifier("Custom Long Break Every")
             Toggle("Open-ended", isOn: $model.openEnded)
+                .accessibilityIdentifier("Custom Open Ended")
             TextField("Rounds", text: $model.rounds).disabled(model.openEnded)
+                .accessibilityIdentifier("Custom Rounds")
             Toggle("Auto-start Focus", isOn: $model.autoStartFocus)
+                .accessibilityIdentifier("Custom Auto Start Focus")
             Toggle("Auto-start Breaks", isOn: $model.autoStartBreaks)
+                .accessibilityIdentifier("Custom Auto Start Breaks")
             TextField("Preset Name", text: $model.name)
-            Text(model.message).foregroundStyle(.secondary).accessibilityLabel(model.message)
+                .accessibilityIdentifier("Custom Preset Name")
+            if !model.message.isEmpty {
+                Text(model.message)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("Custom Session Message")
+            }
             HStack {
                 Button("Save as Preset", action: model.saveAsPreset)
+                    .accessibilityIdentifier("Save Custom Preset")
                 Spacer()
                 Button("Start Once", action: model.startOnce)
                     .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("Start Custom Session")
             }
         }
         .padding()

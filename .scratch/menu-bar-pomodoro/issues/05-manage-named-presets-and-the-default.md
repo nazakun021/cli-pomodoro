@@ -30,7 +30,7 @@
 - `swift test` passed after the Settings integration: 51 tests, 0 failures.
 - Manual native verification passed on 2026-08-10: Tab/Shift-Tab navigation, Classic read-only controls, user-Preset deletion confirmation, and VoiceOver announcements all behaved correctly.
 - `testPresetSettingsProtectsClassicAndManagesCopy` passed through Classic read-only controls, duplication, Tab/Shift-Tab field editing, default selection, and sheet-confirmed deletion using stable accessibility identifiers.
-- Final validation: all 98 Swift tests and all five `PomoUITests` pass with zero skips; touched-file diagnostics and `git diff --check` are clean.
+- Current validation: all 100 Swift tests and all seven `PomoUITests` pass with zero skips; touched-file diagnostics and `git diff --check` are clean.
 
 ## Comments
 
