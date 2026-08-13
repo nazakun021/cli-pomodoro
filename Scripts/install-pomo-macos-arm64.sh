@@ -18,7 +18,18 @@ APP_DIR="$HOME/Applications"
 APP_PATH="$APP_DIR/Pomo.app"
 mkdir -p "$APP_DIR" "$HOME/.local/bin"
 rm -rf "$APP_PATH"
-ditto "$TEMP_DIR/Pomo.app" "$APP_PATH"
+APP_SOURCE=""
+for candidate in "$TEMP_DIR/Pomo.app" "$TEMP_DIR/Pomo-arm64.app"; do
+    if [ -d "$candidate" ]; then
+        APP_SOURCE="$candidate"
+        break
+    fi
+done
+if [ -z "$APP_SOURCE" ]; then
+    printf '%s\n' "The downloaded archive does not contain a Pomo app bundle." >&2
+    exit 1
+fi
+ditto "$APP_SOURCE" "$APP_PATH"
 ln -sfn "$APP_PATH/Contents/Resources/pomo" "$HOME/.local/bin/pomo"
 open "$APP_PATH"
 

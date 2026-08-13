@@ -23,16 +23,16 @@ ad-hoc release uses sound and menu-bar feedback instead.
 
 ## Install
 
-The latest Apple Silicon release installs both the menu-bar app and CLI:
+On an Apple Silicon Mac, download and run the installer for the latest release:
 
 ```sh
 curl -fsSL https://github.com/nazakun021/cli-pomodoro/releases/latest/download/install-pomo-macos-arm64.sh -o /tmp/install-pomo.sh
 sh /tmp/install-pomo.sh
 ```
 
-The installer places `Pomo.app` in `~/Applications`, links `pomo` into
-`~/.local/bin`, and opens the app. Add the local bin directory to `PATH` when
-needed:
+The installer places the menu-bar app at `~/Applications/Pomo.app`, links the
+CLI to `~/.local/bin/pomo`, and opens the app. Add the CLI directory to your
+`PATH` if the `pomo` command is not found:
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
