@@ -22,8 +22,10 @@ esac
 case "$OUTPUT" in
 	/|"$HOME"|"$ROOT") printf '%s\n' "Refusing to remove unsafe output path" >&2; exit 2 ;;
 esac
-OUTPUT_PARENT=$(CDPATH= cd -- "$(dirname -- "$OUTPUT")" 2>/dev/null && pwd) || {
-	printf '%s\n' "Output parent must already exist" >&2
+OUTPUT_PARENT=$(dirname -- "$OUTPUT")
+mkdir -p "$OUTPUT_PARENT"
+OUTPUT_PARENT=$(CDPATH= cd -- "$OUTPUT_PARENT" 2>/dev/null && pwd) || {
+	printf '%s\n' "Unable to access output parent" >&2
 	exit 2
 }
 OUTPUT="$OUTPUT_PARENT/$(basename -- "$OUTPUT")"
