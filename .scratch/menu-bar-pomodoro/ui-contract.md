@@ -50,7 +50,7 @@ Stop requires confirmation and names the impact on partial Focus accounting. Ski
 
 - General: launch at login, app-level behavior, full reset, and onboarding state where support access is needed.
 - Presets: list, create, duplicate, edit, delete, and select default.
-- Alerts: sound on/off and chime preview in every build; notification authorization/status and Open System Settings only when the running build has Apple notification capability.
+- Alerts: sound on/off and distinct Focus-complete/Break-complete chime cues in every build; notification authorization/status and Open System Settings only when the running build has Apple notification capability.
 
 The built-in Classic Preset is immutable and duplicable. User Preset names are case-insensitively unique. Editing or deleting a source Preset never changes an active Session Configuration. Deleting the current default user Preset confirms that Classic becomes default and removes the deleted Preset from recents.
 
@@ -71,7 +71,8 @@ The built-in Classic Preset is immutable and duplicable. User Preset names are c
 - The skipped notification adds a temporary, non-color-only missed-alert indicator to the current status-item representation and a concise menu row explaining that the completion alert was unavailable. VoiceOver announces the indicator without changing Phase state.
 - Opening the menu acknowledges and clears the status-item indicator; the menu row also supports explicit dismissal. The missed completion is never delivered later as a stale notification.
 - Denial or unavailable capability preserves timing, menu cues, and enabled app sound. Signed builds show denial and Open System Settings; ad-hoc builds explain the signing requirement and retain Sound controls.
-- In capable signed builds, Ready completion notifications offer Start Next Phase. Notifications after an automatic transition open current status without an invalid Start action.
+- In capable signed builds, a natural Break-to-Focus Transition that leaves Focus Ready delivers one Ready Focus Prompt offering Start Next Phase. Dismissing it leaves the Focus Phase Ready and does not open the status-item menu automatically.
+- Notifications after an automatic transition open current status without an invalid Start action. Pending, denied, or unavailable notification capability preserves sound and menu feedback without queuing a stale prompt.
 
 ## Accessibility
 

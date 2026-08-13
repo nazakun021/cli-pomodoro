@@ -111,7 +111,7 @@ swift test
 Package a locally signed app:
 
 ```sh
-POMO_ARCHES=arm64 POMO_VERSION=0.1.0 \
+POMO_ARCHES=arm64 POMO_VERSION=0.1.1 \
 	Scripts/package-agent-app.sh release /tmp/Pomo.app
 ```
 
@@ -144,6 +144,7 @@ does not stop an Agent-owned Session.
 
 ## Project Documentation
 
+- [Manual testing guide](TESTING.md)
 - [Domain context](CONTEXT.md)
 - [Feature context](.scratch/menu-bar-pomodoro/FEATURES.md)
 - [CLI contract](.scratch/menu-bar-pomodoro/cli-contract.md)

@@ -23,6 +23,11 @@ final class CustomSessionPopoverController {
     func show(relativeTo button: NSStatusBarButton) {
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
+
+    func dismiss() {
+        guard popover.isShown else { return }
+        popover.performClose(nil)
+    }
 }
 
 @MainActor
@@ -39,11 +44,12 @@ final class CustomSessionModel: ObservableObject {
     @Published var shortBreak = "5m"
     @Published var longBreak = "15m"
     @Published var cadence = "4"
-    @Published var rounds = "4"
+    @Published var restSessions = "3"
     @Published var openEnded = false
     @Published var autoStartFocus = false
     @Published var autoStartBreaks = true
     @Published var message = ""
+    @Published var isStarting = false
 
     init(
         agent: PomoAgentCore,
@@ -69,11 +75,11 @@ final class CustomSessionModel: ObservableObject {
     func loadSelectedPreset() {
         guard let preset = presets.first(where: { $0.id == selectedPresetID }) else { return }
         let configuration = preset.configuration
-        focus = "\(configuration.focusSeconds)s"
-        shortBreak = "\(configuration.shortBreakSeconds)s"
-        longBreak = "\(configuration.longBreakSeconds)s"
+        focus = durationInput(configuration.focusSeconds)
+        shortBreak = durationInput(configuration.shortBreakSeconds)
+        longBreak = durationInput(configuration.longBreakSeconds)
         cadence = "\(configuration.longBreakEvery)"
-        rounds = configuration.targetRounds.map(String.init) ?? ""
+        restSessions = configuration.targetRounds.map { "\(max(0, $0 - 1))" } ?? "3"
         openEnded = configuration.openEnded
         autoStartFocus = configuration.autoStartFocus
         autoStartBreaks = configuration.autoStartBreaks
@@ -81,25 +87,32 @@ final class CustomSessionModel: ObservableObject {
     }
 
     func startOnce() {
+        guard !isStarting else { return }
         do {
             let configuration = try configuration()
             let sourcePresetID = selectedPresetID
+            isStarting = true
+            message = "Starting Session..."
             let dispatcher = mainRunLoopDispatcher
             Task.detached { [weak self, agent, dispatcher] in
                 do {
                     _ = try await agent.start(
                         configuration: configuration, sourcePresetID: sourcePresetID)
                     dispatcher.dispatch { [weak self] in
-                        self?.onStarted()
+                        guard let self else { return }
+                        self.isStarting = false
+                        self.onStarted()
                     }
                 } catch {
                     dispatcher.dispatch { [weak self] in
+                        self?.isStarting = false
                         self?.message =
                             "An active Session must be stopped before starting another."
                     }
                 }
             }
         } catch {
+            isStarting = false
             message = "Check all durations, cadence, and Session boundary values."
         }
     }
@@ -118,9 +131,31 @@ final class CustomSessionModel: ObservableObject {
     private func configuration() throws -> SessionConfiguration {
         try PresetConfigurationDraft(
             focus: focus, shortBreak: shortBreak, longBreak: longBreak,
-            longBreakEvery: cadence, rounds: rounds, openEnded: openEnded,
+            longBreakEvery: cadence, rounds: targetRoundsInput, openEnded: openEnded,
             autoStartFocus: autoStartFocus, autoStartBreaks: autoStartBreaks
         ).configuration()
+    }
+
+    private var targetRoundsInput: String {
+        guard let restSessions = Int(restSessions), restSessions >= 0 else { return "" }
+        return "\(restSessions + 1)"
+    }
+
+    var rounds: String {
+        get { targetRoundsInput }
+        set {
+            guard let targetRounds = Int(newValue), targetRounds >= 1 else {
+                restSessions = newValue
+                return
+            }
+            restSessions = "\(targetRounds - 1)"
+        }
+    }
+
+    private func durationInput(_ seconds: Int) -> String {
+        if seconds % 3_600 == 0 { return "\(seconds / 3_600)h" }
+        if seconds % 60 == 0 { return "\(seconds / 60)m" }
+        return "\(seconds)s"
     }
 }
 
@@ -141,43 +176,56 @@ private struct CustomSessionView: View {
 
     var body: some View {
         Form {
-            Picker("Base Preset", selection: $model.selectedPresetID) {
-                ForEach(model.presets, id: \.id) { preset in
-                    Text(preset.name).tag(Optional(preset.id))
+            Section("Focus session") {
+                Picker("Start from", selection: $model.selectedPresetID) {
+                    ForEach(model.presets, id: \.id) { preset in
+                        Text(preset.name).tag(Optional(preset.id))
+                    }
                 }
+                .accessibilityIdentifier("Custom Base Preset")
+                .onChange(of: model.selectedPresetID) { _ in model.loadSelectedPreset() }
+                TextField("Focus duration", text: $model.focus)
+                    .accessibilityIdentifier("Custom Focus")
+                TextField("Rest breaks", text: $model.restSessions)
+                    .disabled(model.openEnded)
+                    .accessibilityIdentifier("Custom Rounds")
+                    .accessibilityLabel("Rest breaks")
+                Toggle("Open-ended session", isOn: $model.openEnded)
+                    .accessibilityIdentifier("Custom Open Ended")
             }
-            .accessibilityIdentifier("Custom Base Preset")
-            .onChange(of: model.selectedPresetID) { _ in model.loadSelectedPreset() }
-            TextField("Focus", text: $model.focus)
-                .accessibilityIdentifier("Custom Focus")
-            TextField("Short Break", text: $model.shortBreak)
-                .accessibilityIdentifier("Custom Short Break")
-            TextField("Long Break", text: $model.longBreak)
-                .accessibilityIdentifier("Custom Long Break")
-            TextField("Long Break Every", text: $model.cadence)
-                .accessibilityIdentifier("Custom Long Break Every")
-            Toggle("Open-ended", isOn: $model.openEnded)
-                .accessibilityIdentifier("Custom Open Ended")
-            TextField("Rounds", text: $model.rounds).disabled(model.openEnded)
-                .accessibilityIdentifier("Custom Rounds")
-            Toggle("Auto-start Focus", isOn: $model.autoStartFocus)
-                .accessibilityIdentifier("Custom Auto Start Focus")
-            Toggle("Auto-start Breaks", isOn: $model.autoStartBreaks)
-                .accessibilityIdentifier("Custom Auto Start Breaks")
-            TextField("Preset Name", text: $model.name)
-                .accessibilityIdentifier("Custom Preset Name")
+            Section("Rest") {
+                TextField("Short break duration", text: $model.shortBreak)
+                    .accessibilityIdentifier("Custom Short Break")
+                TextField("Long break duration", text: $model.longBreak)
+                    .accessibilityIdentifier("Custom Long Break")
+                TextField("Long break after every", text: $model.cadence)
+                    .accessibilityIdentifier("Custom Long Break Every")
+            }
+            Section("Automation") {
+                Toggle("Auto-start Focus", isOn: $model.autoStartFocus)
+                    .accessibilityIdentifier("Custom Auto Start Focus")
+                Toggle("Auto-start breaks", isOn: $model.autoStartBreaks)
+                    .accessibilityIdentifier("Custom Auto Start Breaks")
+            }
+            Section("Save") {
+                TextField("Preset name", text: $model.name)
+                    .accessibilityIdentifier("Custom Preset Name")
+            }
             if !model.message.isEmpty {
                 Text(model.message)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("Custom Session Message")
             }
             HStack {
                 Button("Save as Preset", action: model.saveAsPreset)
                     .accessibilityIdentifier("Save Custom Preset")
+                    .disabled(model.isStarting)
                 Spacer()
                 Button("Start Once", action: model.startOnce)
                     .keyboardShortcut(.defaultAction)
                     .accessibilityIdentifier("Start Custom Session")
+                    .disabled(model.isStarting)
             }
         }
         .padding()

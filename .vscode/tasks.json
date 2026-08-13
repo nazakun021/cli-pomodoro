@@ -24,7 +24,7 @@
 		{
 			"label": "Package arm64 app",
 			"type": "shell",
-			"command": "POMO_ARCHES=arm64 POMO_VERSION=0.1.0 Scripts/package-agent-app.sh debug /tmp/Pomo-debug.app",
+						"command": "POMO_ARCHES=arm64 POMO_VERSION=0.1.1 Scripts/package-agent-app.sh debug /tmp/Pomo-debug.app",
 			"isBackground": false,
 			"problemMatcher": []
 		},

@@ -1,5 +1,17 @@
 # Blockers
 
+## Open: System notifications unavailable without Apple signing
+
+Date: 2026-08-12
+
+Attempted: Tested the Xcode Debug app after enabling the local Debug notification path.
+
+Observed result: The built app is ad-hoc signed (`Signature=adhoc`, `TeamIdentifier=not set`). macOS logs `UNError.notificationsNotAllowed` when Pomo requests notification authorization. The repeated `com.apple.linkd.autoShortcut` XPC messages are unrelated system-service diagnostics.
+
+Impact: Notification Center banners and notification actions cannot be validated on this Mac without an Apple-signed local build. Pomo must rely on its completion sound, menu state, and missed-alert fallback for the current build.
+
+Next decision: Use a free Xcode Personal Team if available for local notification testing, or defer signed-notification validation until an Apple Development/Developer ID signing identity exists. Do not weaken the Release/ad-hoc capability policy to bypass macOS authorization.
+
 ## Resolved: Ticket 01 deterministic native Idle automation
 
 Date: 2026-08-11

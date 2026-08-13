@@ -16,6 +16,21 @@ func systemNotificationsAvailable(bundleIdentifier: String?, teamIdentifier: Str
     bundleIdentifier != nil && teamIdentifier != nil
 }
 
+func shouldPromptForReadyFocus(
+    previousPhase: PhaseType?,
+    currentPhase: PhaseType?,
+    currentAgentState: AgentState,
+    currentSessionState: SessionState?,
+    autoStartFocus: Bool?
+) -> Bool {
+    let completedBreak = previousPhase == .shortBreak || previousPhase == .longBreak
+    return completedBreak
+        && currentPhase == .focus
+        && currentAgentState == .session
+        && currentSessionState == .ready
+        && autoStartFocus == false
+}
+
 private var signingTeamIdentifier: String? {
     guard let task = SecTaskCreateFromSelf(nil) else { return nil }
     return SecTaskCopyValueForEntitlement(
@@ -25,9 +40,13 @@ private var signingTeamIdentifier: String? {
 }
 
 private var notificationsAvailable: Bool {
-    systemNotificationsAvailable(
-        bundleIdentifier: Bundle.main.bundleIdentifier,
-        teamIdentifier: signingTeamIdentifier)
+    #if DEBUG
+        return Bundle.main.bundleIdentifier != nil
+    #else
+        systemNotificationsAvailable(
+            bundleIdentifier: Bundle.main.bundleIdentifier,
+            teamIdentifier: signingTeamIdentifier)
+    #endif
 }
 
 @MainActor
@@ -196,7 +215,7 @@ private func buildRuntimeFoundation(environment: [String: String]) async
         return nil
     }
     let agent = PomoAgentCore(
-        productVersion: "0.1.0", presetStore: presetStore, summaryStore: summaryStore)
+        productVersion: "0.1.1", presetStore: presetStore, summaryStore: summaryStore)
     let priorInterruption = lifecycleStore.consumeUnexpectedTermination()
     let snapshot = await agent.snapshot()
     lifecycleStore.markRunning(
@@ -306,6 +325,9 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
     private var isExplainingNotifications = false
     private var menuActionTargets: [MenuActionTarget] = []
     private var isMenuOpen = false
+    private var liveMenuStatusItem: NSMenuItem?
+    private var liveMenuProgressItem: NSMenuItem?
+    private var liveMenuPhaseID: UUID?
 
     init(
         agent: PomoAgentCore,
@@ -330,14 +352,14 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
             systemSymbolName: "target", accessibilityDescription: "Pomo Idle")
         item.button?.setAccessibilityLabel("Pomo Idle")
         let initialMenu = NSMenu()
-        addMenuAction(to: initialMenu, title: "Start Classic") { [weak self] in
+        addMenuAction(to: initialMenu, title: "Start Classic", keyEquivalent: "\r") { [weak self] in
             self?.startClassic()
         }
         initialMenu.addItem(.separator())
         addMenuAction(to: initialMenu, title: "Presets...", keyEquivalent: ",") {
             [weak self] in self?.openPresets()
         }
-        addMenuAction(to: initialMenu, title: "Alerts...") { [weak self] in
+        addMenuAction(to: initialMenu, title: "Alerts...", keyEquivalent: "a") { [weak self] in
             self?.openAlerts()
         }
         addMenuAction(to: initialMenu, title: "Quit Pomo", keyEquivalent: "q") {
@@ -395,7 +417,10 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
             lifecycleStore.markRunning(
                 instanceID: instanceID, hasActiveSession: snapshot.agentState == .session)
         }
-        guard !isMenuOpen else { return }
+        if isMenuOpen {
+            updateOpenMenu(for: snapshot)
+            return
+        }
         let priorSnapshot = previousSnapshot
         deliverCompletionCue(from: priorSnapshot, to: snapshot)
         previousSnapshot = snapshot
@@ -408,6 +433,9 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
 
     private func rebuildMenu(for snapshot: AgentSnapshot, summary: DailySummary) {
         menuActionTargets.removeAll(keepingCapacity: true)
+        liveMenuStatusItem = nil
+        liveMenuProgressItem = nil
+        liveMenuPhaseID = nil
         let menu = NSMenu()
         if snapshot.agentState == .session {
             let phase = snapshot.phaseType == .focus ? "Focus" : "Break"
@@ -421,30 +449,55 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
                 rounds = "Round \((snapshot.completedRounds ?? 0) + 1)"
             }
             item.button?.image = NSImage(
-                systemSymbolName: missedAlert
-                    ? "bell.badge"
-                    : statusSymbol(for: snapshot),
+                systemSymbolName: missedAlert ? "bell.badge" : statusSymbol(for: snapshot),
                 accessibilityDescription: statusDescription)
             item.button?.setAccessibilityLabel(statusDescription)
+            item.button?.toolTip = missedAlert ? "Pomo has a missed completion alert" : nil
             item.button?.title = formatRemaining(snapshot.remainingSeconds ?? 0)
-            menu.addItem(withTitle: "\(phase) - \(state)", action: nil, keyEquivalent: "")
+            let statusItem = menu.addItem(
+                withTitle: menuStatusTitle(for: snapshot),
+                action: nil,
+                keyEquivalent: "")
+            liveMenuStatusItem = statusItem
+            liveMenuPhaseID = snapshot.phaseID
+            menu.items.last?.image = NSImage(
+                systemSymbolName: "timer", accessibilityDescription: "Current phase")
             menu.addItem(withTitle: rounds, action: nil, keyEquivalent: "")
+            menu.items.last?.image = NSImage(
+                systemSymbolName: "repeat", accessibilityDescription: "Round")
+            if let progress = phaseProgressDescription(for: snapshot) {
+                let progressItem = menu.addItem(
+                    withTitle: progress, action: nil, keyEquivalent: "")
+                liveMenuProgressItem = progressItem
+                menu.items.last?.image = NSImage(
+                    systemSymbolName: "chart.bar", accessibilityDescription: "Progress")
+            }
             menu.addItem(.separator())
             if snapshot.sessionState == .running {
-                addMenuAction(to: menu, title: "Pause") { [weak self] in self?.pauseSession() }
+                addMenuAction(to: menu, title: "Pause", keyEquivalent: "p") { [weak self] in
+                    self?.pauseSession()
+                }
             } else if snapshot.sessionState == .paused {
-                addMenuAction(to: menu, title: "Resume") { [weak self] in self?.resumeSession() }
+                addMenuAction(to: menu, title: "Resume", keyEquivalent: "r") { [weak self] in
+                    self?.resumeSession()
+                }
             } else if snapshot.sessionState == .ready {
-                addMenuAction(to: menu, title: "Start") { [weak self] in self?.resumeSession() }
+                addMenuAction(to: menu, title: "Start", keyEquivalent: "\r") { [weak self] in
+                    self?.resumeSession()
+                }
             }
-            addMenuAction(to: menu, title: "Skip") { [weak self] in self?.skipPhase() }
-            addMenuAction(to: menu, title: "Stop Session") { [weak self] in
+            addMenuAction(to: menu, title: "Skip Phase", keyEquivalent: "s") { [weak self] in
+                self?.skipPhase()
+            }
+            addMenuAction(to: menu, title: "Stop Session", keyEquivalent: "x") { [weak self] in
                 self?.confirmStop()
             }
             menu.addItem(
                 withTitle: "Next: \(nextPhaseDescription(for: snapshot))",
                 action: nil,
                 keyEquivalent: "")
+            menu.items.last?.image = NSImage(
+                systemSymbolName: "arrow.right.circle", accessibilityDescription: "Next phase")
             addSummaryItem(to: menu, summary: summary)
         } else {
             let statusDescription =
@@ -454,11 +507,13 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
                 systemSymbolName: missedAlert ? "bell.badge" : "target",
                 accessibilityDescription: statusDescription)
             item.button?.setAccessibilityLabel(statusDescription)
+            item.button?.toolTip = missedAlert ? "Pomo has a missed completion alert" : nil
             addQuickStartItems(to: menu)
             addSummaryItem(to: menu, summary: summary)
         }
         if missedAlert {
-            addMenuAction(to: menu, title: "Dismiss missed completion alert") { [weak self] in
+            addMenuAction(to: menu, title: "Dismiss missed completion alert", keyEquivalent: "d") {
+                [weak self] in
                 self?.dismissMissedAlert()
             }
         }
@@ -466,8 +521,11 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
         addMenuAction(to: menu, title: "Presets...", keyEquivalent: ",") { [weak self] in
             self?.openPresets()
         }
-        addMenuAction(to: menu, title: "Alerts...") { [weak self] in self?.openAlerts() }
-        let loginItem = addMenuAction(to: menu, title: "Launch at Login") { [weak self] in
+        addMenuAction(to: menu, title: "Alerts...", keyEquivalent: "a") { [weak self] in
+            self?.openAlerts()
+        }
+        let loginItem = addMenuAction(to: menu, title: "Launch at Login", keyEquivalent: "l") {
+            [weak self] in
             self?.toggleLaunchAtLogin()
         }
         switch SMAppService.mainApp.status {
@@ -482,13 +540,46 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
         item.menu = menu
     }
 
+    private func updateOpenMenu(for snapshot: AgentSnapshot) {
+        guard snapshot.agentState == .session,
+            snapshot.phaseID == liveMenuPhaseID
+        else { return }
+        item.button?.title = formatRemaining(snapshot.remainingSeconds ?? 0)
+        liveMenuStatusItem?.title = menuStatusTitle(for: snapshot)
+        if let progress = phaseProgressDescription(for: snapshot) {
+            liveMenuProgressItem?.title = progress
+        }
+    }
+
     private func addSummaryItem(to menu: NSMenu, summary: DailySummary) {
         menu.addItem(
             withTitle:
-                "Today: \(summary.compactFocusText) Focus, \(summary.completedRounds) Rounds, "
+                "Today: \(summary.compactFocusText) focus - \(summary.completedRounds) rounds - "
                 + "\(summary.currentStreak)-day streak",
             action: nil,
             keyEquivalent: "")
+        menu.items.last?.image = NSImage(
+            systemSymbolName: "chart.bar", accessibilityDescription: "Today summary")
+    }
+
+    private func phaseProgressDescription(for snapshot: AgentSnapshot) -> String? {
+        guard let total = snapshot.configuredDurationSeconds,
+            let remaining = snapshot.remainingSeconds,
+            total > 0
+        else { return nil }
+        let elapsed = min(total, max(0, total - remaining))
+        let percentage = Int((Double(elapsed) / Double(total) * 100).rounded())
+        return "Progress: \(percentage)% complete"
+    }
+
+    private func menuStatusTitle(for snapshot: AgentSnapshot) -> String {
+        let phase = snapshot.phaseType == .focus ? "Focus" : "Break"
+        let remaining = "\(formatRemaining(snapshot.remainingSeconds ?? 0)) remaining"
+        switch snapshot.sessionState {
+        case .paused: return "\(phase) - Paused - \(remaining)"
+        case .ready: return "\(phase) - Ready - \(remaining)"
+        default: return "\(phase) - \(remaining)"
+        }
     }
 
     private func statusSymbol(for snapshot: AgentSnapshot) -> String {
@@ -503,7 +594,7 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
     private func nextPhaseDescription(for snapshot: AgentSnapshot) -> String {
         guard let configuration = snapshot.configuration else { return "Unavailable" }
         if snapshot.phaseType != .focus {
-            return "Focus (\(formatRemaining(configuration.focusSeconds)))"
+            return "Focus - \(formatRemaining(configuration.focusSeconds))"
         }
         let nextCompletedRound = (snapshot.completedRounds ?? 0) + 1
         let isLongBreak = nextCompletedRound.isMultiple(of: configuration.longBreakEvery)
@@ -511,7 +602,7 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
         let duration =
             isLongBreak
             ? configuration.longBreakSeconds : configuration.shortBreakSeconds
-        return "\(name) (\(formatRemaining(duration)))"
+        return "\(name) - \(formatRemaining(duration))"
     }
 
     fileprivate func showStatus() {
@@ -551,16 +642,17 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
 
     private func addQuickStartItems(to menu: NSMenu) {
         guard let defaultPreset = try? presetStore.defaultPreset() else {
-            addMenuAction(to: menu, title: "Start Classic") { [weak self] in
+            addMenuAction(to: menu, title: "Start Classic", keyEquivalent: "\r") { [weak self] in
                 self?.startClassic()
             }
             return
         }
-        addStartPresetItem(defaultPreset, title: "Start \(defaultPreset.name)", to: menu)
+        addStartPresetItem(
+            defaultPreset, title: "Start \(defaultPreset.name)", keyEquivalent: "\r", to: menu)
         for preset in (try? presetStore.recentPresets()) ?? [] {
-            addStartPresetItem(preset, title: preset.name, to: menu)
+            addStartPresetItem(preset, title: preset.name, keyEquivalent: "", to: menu)
         }
-        addMenuAction(to: menu, title: "Custom Session...") { [weak self] in
+        addMenuAction(to: menu, title: "Custom Session...", keyEquivalent: "n") { [weak self] in
             self?.openCustomSession()
         }
     }
@@ -581,8 +673,13 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
             target: target)
     }
 
-    private func addStartPresetItem(_ preset: Preset, title: String, to menu: NSMenu) {
-        addMenuAction(to: menu, title: title) { [weak self] in
+    private func addStartPresetItem(
+        _ preset: Preset,
+        title: String,
+        keyEquivalent: String,
+        to menu: NSMenu
+    ) {
+        addMenuAction(to: menu, title: title, keyEquivalent: keyEquivalent) { [weak self] in
             self?.startPreset(id: preset.id, name: title)
         }
     }
@@ -618,7 +715,10 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
             customSessionPopover = CustomSessionPopoverController(
                 agent: agent,
                 store: presetStore,
-                onStarted: { self.refresh() })
+                onStarted: { [weak self] in
+                    self?.customSessionPopover?.dismiss()
+                    self?.refresh()
+                })
         }
         guard let button = item.button else { return }
         customSessionPopover?.show(relativeTo: button)
@@ -748,11 +848,19 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
     private func deliverCompletionCue(from previous: AgentSnapshot?, to current: AgentSnapshot) {
         guard let previous,
             previous.agentState == .session,
-            previous.phaseType == .focus,
             previous.phaseID != current.phaseID
         else { return }
         let preferences = alertPreferences.preferences
-        if preferences.soundEnabled { playCompletionChime() }
+        if preferences.soundEnabled, let previousPhase = previous.phaseType {
+            playCompletionChime(for: previousPhase)
+        }
+        let readyFocusPrompt = shouldPromptForReadyFocus(
+            previousPhase: previous.phaseType,
+            currentPhase: current.phaseType,
+            currentAgentState: current.agentState,
+            currentSessionState: current.sessionState,
+            autoStartFocus: current.configuration?.autoStartFocus)
+        guard previous.phaseType == .focus || readyFocusPrompt else { return }
         guard preferences.notificationsEnabled else { return }
         guard notificationsAvailable else {
             missedAlert = true
@@ -792,6 +900,9 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
             let body: String
             if current.agentState != .session {
                 body = "Focus completed."
+            } else if readyFocusPrompt {
+                let round = (current.completedRounds ?? 0) + 1
+                body = "Break complete. Focus round \(round) is ready."
             } else if current.phaseType == .focus {
                 body = "Focus is ready."
             } else {
@@ -819,8 +930,8 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
         }
     }
 
-    private func playCompletionChime() {
-        NSSound(data: CompletionChime.data)?.play()
+    private func playCompletionChime(for completedPhase: PhaseType) {
+        NSSound(data: CompletionChime.data(for: completedPhase))?.play()
     }
 
     @objc private func dismissMissedAlert() {
@@ -1054,17 +1165,29 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
 }
 
 private enum CompletionChime {
-    static let data: Data = {
+    static func data(for completedPhase: PhaseType) -> Data {
+        switch completedPhase {
+        case .focus:
+            return makeData(frequencies: [880, 1_320], duration: 0.24)
+        case .shortBreak, .longBreak:
+            return makeData(frequencies: [660, 990, 1_320], duration: 0.32)
+        }
+    }
+
+    private static func makeData(frequencies: [Double], duration: Double) -> Data {
         let sampleRate = 44_100
-        let sampleCount = Int(Double(sampleRate) * 0.24)
+        let sampleCount = Int(Double(sampleRate) * duration)
         var samples = [Int16]()
         samples.reserveCapacity(sampleCount)
         for index in 0..<sampleCount {
             let time = Double(index) / Double(sampleRate)
-            let envelope = max(0, 1 - time / 0.24)
-            let firstTone = sin(2 * Double.pi * 880 * time) * 0.25
-            let secondTone = sin(2 * Double.pi * 1_320 * time) * 0.16
-            samples.append(Int16((firstTone + secondTone) * envelope * Double(Int16.max)))
+            let envelope = max(0, 1 - time / duration)
+            let tones = frequencies.enumerated().reduce(0.0) { result, entry in
+                let (index, frequency) = entry
+                let amplitude = 0.28 / Double(index + 1)
+                return result + sin(2 * Double.pi * frequency * time) * amplitude
+            }
+            samples.append(Int16(tones * envelope * Double(Int16.max)))
         }
         var bytes = Data()
         bytes.append(contentsOf: Array("RIFF".utf8))
@@ -1083,7 +1206,7 @@ private enum CompletionChime {
             appendLittleEndian(UInt16(bitPattern: sample), to: &bytes)
         }
         return bytes
-    }()
+    }
 
     private static func appendLittleEndian<T: FixedWidthInteger>(_ value: T, to data: inout Data) {
         var littleEndian = value.littleEndian

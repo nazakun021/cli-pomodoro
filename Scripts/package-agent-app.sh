@@ -5,7 +5,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 CONFIG=${1:-release}
 OUTPUT=${2:-"$ROOT/.build/$CONFIG/Pomo.app"}
 ARCHES=${POMO_ARCHES:-arm64}
-VERSION=${POMO_VERSION:-0.1.0}
+VERSION=${POMO_VERSION:-0.1.1}
 
 case "$VERSION" in
 	*[^0-9.]*|.*|*..*|"" ) printf '%s\n' "POMO_VERSION must be a dotted numeric version" >&2; exit 2 ;;

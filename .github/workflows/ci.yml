@@ -40,7 +40,7 @@ jobs:
       - name: Package app
         env:
           POMO_ARCHES: arm64
-          POMO_VERSION: 0.1.0
+          POMO_VERSION: 0.1.1
         run: Scripts/package-agent-app.sh debug /tmp/Pomo-ci.app
 
       - name: Verify app

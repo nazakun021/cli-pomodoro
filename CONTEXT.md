@@ -42,6 +42,10 @@ Movement from one Phase to the next. A Transition may start the next Phase autom
 
 The state after a Phase completes when the next Phase is selected but automatic start is disabled. Ready displays the upcoming Phase and its full duration; it is neither idle nor paused.
 
+### Ready Focus Prompt
+
+A one-shot macOS User Notification shown when a Break completes and the next Focus Phase enters Ready. It offers starting that existing Focus Phase and does not create a new Session or open the status-item menu automatically.
+
 ### Idle
 
 The Agent state in which no Session exists. The menu-bar item remains available and can start a new Session.

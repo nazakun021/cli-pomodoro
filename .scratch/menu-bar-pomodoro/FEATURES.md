@@ -85,7 +85,7 @@ Technical macOS users can start and control a Pomodoro session with `pomo` or th
 - The agent remains in the menu bar while idle and shows only the app icon.
 - Ready shows a play/phase symbol and the upcoming phase's full duration; Paused shows a pause symbol and frozen remaining time.
 - When automatic transition is disabled, completion enters a ready state showing the upcoming phase and its full duration.
-- Phase completion produces a configurable bundled sound, a visible menu-bar state change, and an accessible missed-alert indicator. Apple team-signed builds may additionally produce a macOS notification.
+- Phase completion produces a configurable bundled sound with distinct Focus-complete and Break-complete cues, a visible menu-bar state change, and an accessible missed-alert indicator. Apple team-signed builds may additionally produce a macOS notification.
 - Sound is enabled by default. Notification preference and actions are available only when the running build has Apple notification capability.
 - The bundled default completion sound is a subtle, system-like chime suitable for repeated use.
 - On the first Session start, an Apple team-signed build briefly explains phase notifications before requesting macOS notification permission. Ad-hoc builds do not request permission.

@@ -1789,7 +1789,7 @@ public struct LocalAgentClient: Sendable {
         let hello = Hello(
             messageID: UUID(),
             clientName: "pomo",
-            clientVersion: "0.1.0",
+            clientVersion: "0.1.1",
             supportedProtocol: supportedProtocol,
             capabilities: ["status"]
         )
@@ -1956,7 +1956,7 @@ public struct LocalAgentClient: Sendable {
         let hello = Hello(
             messageID: UUID(),
             clientName: "pomo",
-            clientVersion: "0.1.0",
+            clientVersion: "0.1.1",
             supportedProtocol: supportedProtocol,
             capabilities: ["status"]
         )

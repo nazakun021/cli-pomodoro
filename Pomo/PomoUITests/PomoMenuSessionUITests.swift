@@ -99,6 +99,9 @@ final class PomoMenuSessionUITests: XCTestCase {
         XCTAssertTrue(autoStartFocus.exists)
         XCTAssertTrue(autoStartBreaks.exists)
         XCTAssertTrue(name.exists)
+        XCTAssertEqual(focus.value as? String, "25m")
+        XCTAssertEqual(shortBreak.value as? String, "5m")
+        XCTAssertEqual(longBreak.value as? String, "15m")
 
         replaceText("30s", in: focus, app: app)
         replaceText("2s", in: shortBreak, app: app)
@@ -110,6 +113,7 @@ final class PomoMenuSessionUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Save Custom Preset"].exists)
         XCTAssertTrue(start.exists)
         start.click()
+        XCTAssertTrue(app.textFields["Custom Focus"].waitForNonExistence(timeout: 5))
 
         openStatusItem(in: app)
         XCTAssertTrue(app.menuItems["Pause"].waitForExistence(timeout: 5))
