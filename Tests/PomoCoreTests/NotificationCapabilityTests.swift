@@ -39,4 +39,12 @@ final class NotificationCapabilityTests: XCTestCase {
                 bundleIdentifier: "com.nazakun.pomo",
                 teamIdentifier: "TEAM"))
     }
+
+    func testMenuBarStatusSymbolFollowsTheActivePhase() {
+        XCTAssertEqual(menuBarStatusSymbol(phase: .focus, state: .running), "target")
+        XCTAssertEqual(
+            menuBarStatusSymbol(phase: .shortBreak, state: .running), "cup.and.saucer")
+        XCTAssertEqual(
+            menuBarStatusSymbol(phase: .longBreak, state: .running), "cup.and.saucer")
+    }
 }

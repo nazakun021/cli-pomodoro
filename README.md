@@ -23,10 +23,10 @@ ad-hoc release uses sound and menu-bar feedback instead.
 
 ## Install
 
-On an Apple Silicon Mac, download and run the installer for release `v0.1.4`:
+On an Apple Silicon Mac, download and run the installer for release `v0.1.5`:
 
 ```sh
-curl -fsSL https://github.com/nazakun021/cli-pomodoro/releases/download/v0.1.4/install-pomo-macos-arm64.sh -o /tmp/install-pomo.sh
+curl -fsSL https://github.com/nazakun021/cli-pomodoro/releases/download/v0.1.5/install-pomo-macos-arm64.sh -o /tmp/install-pomo.sh
 sh /tmp/install-pomo.sh
 ```
 

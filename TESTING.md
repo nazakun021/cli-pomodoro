@@ -139,6 +139,7 @@ Confirm:
 - Today's summary remains visible.
 
 Keep the menu open for at least five seconds. Confirm the countdown and percentage update without closing or reopening the menu. Confirm the menu actions remain usable.
+Record each displayed second during this check and confirm the countdown does not skip a visible value during normal refresh.
 
 ### Pause and resume
 
@@ -222,12 +223,12 @@ This test applies when a notification is denied, unavailable, or cannot be deliv
 1. Disable notification permission or use the current ad-hoc build.
 2. Complete a short Focus or Break.
 3. Confirm the completion sound plays when enabled.
-4. Confirm the menu-bar icon changes to `bell.badge`.
+4. Confirm the menu-bar icon continues to represent the active phase: `target` for Focus or `cup.and.saucer` for a Break.
 5. Open the menu.
 6. Confirm a missed completion row explains the condition.
 7. Confirm the row has `Dismiss missed completion alert`.
 8. Dismiss it.
-9. Confirm the warning icon and menu row disappear.
+9. Confirm the missed completion row disappears while the phase icon remains phase-specific.
 
 Notification Center testing requires an Apple-signed Xcode build:
 

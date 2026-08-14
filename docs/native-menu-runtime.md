@@ -13,6 +13,8 @@ The implemented boundary therefore follows these rules:
 - Agent reads and mutations run in detached tasks against `PomoAgentCore`.
 - AppKit updates are delivered in order by `MainRunLoopDispatcher` through a queued `performSelector(onMainThread:)` drain.
 - Periodic Session refresh uses a Foundation `Timer` in `RunLoop.main` common modes.
+- Refresh work is coalesced so overlapping snapshot and summary loads cannot discard
+	a visible countdown update.
 - The current `NSMenu` and its retained action targets are never replaced while the menu is open.
 - Every menu command uses a stable NSObject action target rather than an actor-isolated Objective-C selector thunk.
 - The isolated XCUITest runtime host enters AppKit immediately through a normal window, builds the shared Agent/socket foundation off-main, and installs the production status item through `MainRunLoopDispatcher`.

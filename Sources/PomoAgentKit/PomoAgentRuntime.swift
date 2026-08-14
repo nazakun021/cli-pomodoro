@@ -301,6 +301,15 @@ final class MainRunLoopDispatcher: NSObject, @unchecked Sendable {
     }
 }
 
+func menuBarStatusSymbol(phase: PhaseType?, state: SessionState?) -> String {
+    switch state {
+    case .ready: return "play.circle"
+    case .paused: return "pause.circle"
+    case .running, .blocked, nil:
+        return phase == .focus ? "target" : "cup.and.saucer"
+    }
+}
+
 @MainActor
 private final class IdleStatusItem: NSObject, NSMenuDelegate {
     private let agent: PomoAgentCore
@@ -319,6 +328,8 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
     private var previousSnapshot: AgentSnapshot?
     private var authorizationRequested = false
     private var refreshGeneration = 0
+    private var refreshInFlight = false
+    private var refreshPending = false
     private var isQuitting = false
     private var missedAlert = false
     private var missedAlertGeneration = 0
@@ -394,6 +405,11 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
     }
 
     private func refresh() {
+        guard !refreshInFlight else {
+            refreshPending = true
+            return
+        }
+        refreshInFlight = true
         refreshGeneration += 1
         let generation = refreshGeneration
         Task.detached { [weak self, agent] in
@@ -412,13 +428,17 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
         summary: DailySummary,
         generation: Int
     ) {
-        guard !isQuitting, generation == refreshGeneration else { return }
+        guard !isQuitting, generation == refreshGeneration else {
+            finishRefresh()
+            return
+        }
         if let instanceID = snapshot.agentInstanceID {
             lifecycleStore.markRunning(
                 instanceID: instanceID, hasActiveSession: snapshot.agentState == .session)
         }
         if isMenuOpen {
             updateOpenMenu(for: snapshot)
+            finishRefresh()
             return
         }
         let priorSnapshot = previousSnapshot
@@ -429,6 +449,14 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
             explainNotificationsIfNeeded()
             requestNotificationAuthorizationIfNeeded()
         }
+        finishRefresh()
+    }
+
+    private func finishRefresh() {
+        refreshInFlight = false
+        guard refreshPending else { return }
+        refreshPending = false
+        refresh()
     }
 
     private func rebuildMenu(for snapshot: AgentSnapshot, summary: DailySummary) {
@@ -449,7 +477,7 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
                 rounds = "Round \((snapshot.completedRounds ?? 0) + 1)"
             }
             item.button?.image = NSImage(
-                systemSymbolName: missedAlert ? "bell.badge" : statusSymbol(for: snapshot),
+                systemSymbolName: statusSymbol(for: snapshot),
                 accessibilityDescription: statusDescription)
             item.button?.setAccessibilityLabel(statusDescription)
             item.button?.toolTip = missedAlert ? "Pomo has a missed completion alert" : nil
@@ -583,12 +611,7 @@ private final class IdleStatusItem: NSObject, NSMenuDelegate {
     }
 
     private func statusSymbol(for snapshot: AgentSnapshot) -> String {
-        switch snapshot.sessionState {
-        case .ready: return "play.circle"
-        case .paused: return "pause.circle"
-        case .running, .blocked, nil:
-            return snapshot.phaseType == .focus ? "target" : "cup.and.saucer"
-        }
+        menuBarStatusSymbol(phase: snapshot.phaseType, state: snapshot.sessionState)
     }
 
     private func nextPhaseDescription(for snapshot: AgentSnapshot) -> String {
